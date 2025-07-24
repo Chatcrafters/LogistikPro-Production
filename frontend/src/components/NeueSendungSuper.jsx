@@ -111,11 +111,28 @@ const NeueSendungSuper = ({ onClose, onSave }) => {
   const loadMasterData = async () => {
     try {
       setLoading(true);
+      console.log('🚀 Loading master data...');
+      
       const [customersData, partnersData, airportsData] = await Promise.all([
-        shipmentService.getCustomers(),
-        shipmentService.getPartners(), 
-        shipmentService.getAirports()
+        shipmentService.getCustomers().catch(err => {
+          console.error('❌ Error loading customers:', err);
+          return [];
+        }),
+        shipmentService.getPartners().catch(err => {
+          console.error('❌ Error loading partners:', err);
+          return [];
+        }), 
+        shipmentService.getAirports().catch(err => {
+          console.error('❌ Error loading airports:', err);
+          return [];
+        })
       ]);
+      
+      console.log('📊 Loaded data:', {
+        customers: customersData?.length || 0,
+        partners: partnersData?.length || 0,
+        airports: airportsData?.length || 0
+      });
       
       // Kunden mit Abholorten formatieren
       const formattedCustomers = customersData.map(c => ({

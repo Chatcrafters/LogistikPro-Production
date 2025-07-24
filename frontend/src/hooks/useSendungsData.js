@@ -1,6 +1,12 @@
 // frontend/src/hooks/useSendungsData.js
 import { useState, useCallback } from 'react';
-import supabase from '../supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase Client Setup
+// Supabase Client Setup - Vite nutzt import.meta.env
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://vjehwwmhtzqilvwtppcc.supabase.co';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqZWh3d21odHpxaWx2d3RwcGNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MDYwMDIsImV4cCI6MjA2NzQ4MjAwMn0.wkFyJHFi2mAb_FRsbjrrBTqX75vqV_4nsfWQLWm8QjI';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const useSendungsData = () => {
   // State Management

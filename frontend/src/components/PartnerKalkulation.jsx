@@ -419,6 +419,7 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
       if (error) throw error;
       
       console.log('Partner geladen:', partners);
+console.log('🔍 HuT Partner:', partners?.find(p => p.name === 'HuT'));
       console.log('Agent-Partner:', partners?.filter(p => p.type === 'agent'));
       setAvailablePartners(partners || []);
       setLoading(false);
@@ -479,84 +480,229 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
     const partner = availablePartners.find(p => p.id === partnerId);
     
     try {
-      // Nur für Abholung: Nutze echte Tarife
-      if (typ === 'abholung') {
-        let pickupPLZ = '70173'; // Fallback Stuttgart
-        
-        // Hole PLZ aus sendungData wenn vorhanden
-        if (sendungData.pickup_address && sendungData.pickup_address.zip) {
-          pickupPLZ = sendungData.pickup_address.zip;
-          console.log('PLZ aus pickup_address:', pickupPLZ);
-        } else if (sendungData.abholort_plz) {
-          pickupPLZ = sendungData.abholort_plz;
-          console.log('PLZ aus abholort_plz:', pickupPLZ);
-        } else if (sendungData.abholort) {
-          // Fallback: Versuche aus String zu extrahieren
-          const plzMatch = sendungData.abholort.match(/\b(\d{5})\b/);
-          if (plzMatch) {
-            pickupPLZ = plzMatch[1];
-          } else {
-            // Ortsnamen-Fallback
-            const ortLower = sendungData.abholort.toLowerCase();
-            if (ortLower.includes('affalterbach')) {
-              pickupPLZ = '71563';
-            }
+  // Automatische Tarif-Berechnung für HuT, BAT und Böpple
+  if (typ === 'abholung' && (partner.name === 'HuT' || partner.name.includes('BAT') || partner.name.includes('Blue Transport') || partner.name.includes('Böpple'))) {
+  console.log(`🎯 ${partner.name} automatische Kostenberechnung startet...`);
+  
+  // BÖPPLE SPEZIAL-BEHANDLUNG (Fahrzeuge)
+  if (partner.name.includes('Böpple')) {
+    console.log('🚗 Böpple Fahrzeugtransport-Berechnung');
+    
+    // Böpple braucht: Fahrzeugtyp, Anzahl, Zielflughafen
+    const fahrzeugTyp = sendungData.fahrzeugTyp || 'PKW'; // Default PKW
+    const anzahlFahrzeuge = parseInt(sendungData.anzahlFahrzeuge) || 1;
+    const zielFlughafen = sendungData.nachFlughafen || 'STR';
+    
+    // Zone-Code für Böpple basiert auf Fahrzeuganzahl und Typ
+    // F1_PKW = 1 Fahrzeug PKW, F2_SUV = 2 Fahrzeuge SUV, etc.
+    const zoneCode = `F${anzahlFahrzeuge}_${fahrzeugTyp}`;
+    
+    try {
+      // Böpple Tarif direkt aus partner_base_rates
+      const { data: rateData, error: rateError } = await supabase
+        .from('partner_base_rates')
+        .select('base_price')
+        .eq('partner_id', partnerId)
+        .eq('airport_code', zielFlughafen)
+        .eq('zone_code', zoneCode)
+        .single();
+      
+      if (!rateError && rateData) {
+        setKosten(prev => ({
+          ...prev,
+          [typ]: { 
+            status: 'calculated', 
+            betrag: parseFloat(rateData.base_price),
+            partner_id: partnerId,
+            partner_name: partner.name,
+            details: { 
+              fahrzeugTyp: fahrzeugTyp,
+              anzahl: anzahlFahrzeuge,
+              ziel: zielFlughafen,
+              breakdown: `${anzahlFahrzeuge}x ${fahrzeugTyp} nach ${zielFlughafen}`
+            },
+            source: 'database'
           }
-        }
-        
-        console.log('Finale PLZ für Tarifberechnung:', pickupPLZ);
-        
-        // SUPABASE: Versuche Zone-Lookup
-        try {
-          const { data: zoneData, error: zoneError } = await supabase
-            .from('hut_postal_zones')
-            .select('zone')
-            .eq('plz', pickupPLZ)
-            .single();
-          
-          if (!zoneError && zoneData) {
-            // Zone gefunden, jetzt Tarif suchen
-            const { data: rateData, error: rateError } = await supabase
-              .from('partner_base_rates')
-              .select('price')
-              .eq('partner_id', partnerId)
-              .eq('zone', zoneData.zone)
-              .lte('weight_from', sendungData.gesamtGewicht || 0)
-              .gte('weight_to', sendungData.gesamtGewicht || 0)
-              .single();
-            
-            if (!rateError && rateData) {
-              setKosten(prev => ({
-                ...prev,
-                [typ]: { 
-                  status: 'calculated', 
-                  betrag: parseFloat(rateData.price),
-                  partner_id: partnerId,
-                  partner_name: partner.name,
-                  details: { zone: zoneData.zone, plz: pickupPLZ },
-                  source: 'database'
-                }
-              }));
-              return;
-            }
+        }));
+        console.log(`✅ Böpple Tarif: €${rateData.base_price}`);
+        return;
+      } else {
+        // Fallback für Böpple
+        setKosten(prev => ({
+          ...prev,
+          [typ]: { 
+            status: 'manual', 
+            betrag: 0,
+            partner_id: partnerId,
+            partner_name: partner.name,
+            message: `Kein Tarif für ${anzahlFahrzeuge}x ${fahrzeugTyp} nach ${zielFlughafen}`
           }
-        } catch (dbError) {
-          console.log('Database-Tarif nicht verfügbar:', dbError.message);
-        }
+        }));
+        return;
+      }
+    } catch (error) {
+      console.error('Böpple Fehler:', error);
+    }
+  }
+  
+  // HUT UND BAT BERECHNUNG (Teile-Transporte)
+  else {
+    // 1. Hole PLZ aus sendungData
+    let pickupPLZ = sendungData.absenderPlz || sendungData.abholort_plz || sendungData.pickup_address?.zip || '';
+    
+    // Falls PLZ noch nicht vorhanden, aus abholort extrahieren
+if (!pickupPLZ && sendungData.abholort) {
+  const plzMatch = sendungData.abholort.match(/\b(\d{5})\b/);
+  if (plzMatch) {
+    pickupPLZ = plzMatch[1];
+    console.log('📮 PLZ aus Abholort extrahiert:', pickupPLZ);
+  }
+}
+
+// Extra Debug für Affalterbach
+if (sendungData.abholort?.includes('Affalterbach')) {
+  pickupPLZ = '71563';
+  console.log('📮 Affalterbach erkannt, setze PLZ:', pickupPLZ);
+}
+    
+    const gewicht = parseFloat(sendungData.gesamtGewicht) || 0;
+    const pieces = parseInt(sendungData.gesamtColli) || 1;
+    
+    console.log(`📍 ${partner.name}-Kalkulation: PLZ: ${pickupPLZ}, Gewicht: ${gewicht}kg, Stücke: ${pieces}`);
+    
+    // Wähle die richtige Tabelle basierend auf Partner
+    const isHuT = partner.name === 'HuT';
+    const tableName = isHuT ? 'hut_postal_zones' : 'bat_postal_zones';
+    
+    try {
+      // 2. PLZ zu Zone lookup
+      console.log(`🔍 Suche in Tabelle: ${tableName}`);
+      const { data: zoneData, error: zoneError } = await supabase
+        .from(tableName)
+        .select('zone_code')
+        .eq('postal_code', pickupPLZ)
+        .single();
+      
+      if (zoneError || !zoneData) {
+        console.log(`❌ PLZ ${pickupPLZ} nicht in ${partner.name}-Zonen gefunden`);
+        setKosten(prev => ({
+          ...prev,
+          [typ]: { 
+            status: 'manual', 
+            betrag: 0,
+            partner_id: partnerId,
+            partner_name: partner.name,
+            message: `PLZ ${pickupPLZ} nicht im ${partner.name}-Gebiet. Manuelle Anfrage erforderlich.`
+          }
+        }));
+        return;
       }
       
-      // Fallback für andere Typen oder wenn keine Tarife gefunden
+      console.log(`✅ Zone gefunden: ${zoneData.zone_code}`);
+      
+      // 3. Tarif basierend auf Zone und Gewicht
+      const { data: rateData, error: rateError } = await supabase
+        .from('partner_base_rates')
+        .select('base_price, xray_base, xray_per_unit, xray_included_units')
+        .eq('partner_id', partnerId)
+        .eq('zone_code', zoneData.zone_code)
+        .lte('weight_from', gewicht)
+        .gte('weight_to', gewicht)
+        .single();
+      
+      if (rateError || !rateData) {
+        console.log('❌ Kein Tarif gefunden für Zone/Gewicht');
+        setKosten(prev => ({
+          ...prev,
+          [typ]: { 
+            status: 'manual', 
+            betrag: 0,
+            partner_id: partnerId,
+            partner_name: partner.name,
+            message: `Kein Tarif für ${gewicht}kg in ${zoneData.zone_code}. Manuelle Anfrage erforderlich.`
+          }
+        }));
+        return;
+      }
+      
+      // 4. Berechne Gesamtkosten
+      let transportKosten = parseFloat(rateData.base_price) || 0;
+      let xrayKosten = parseFloat(rateData.xray_base) || 30;
+      
+      // X-Ray Gebühren berechnen
+      const includedUnits = parseInt(rateData.xray_included_units) || 5;
+      if (pieces > includedUnits) {
+        const extraPieces = pieces - includedUnits;
+        const perUnit = parseFloat(rateData.xray_per_unit) || 6;
+        xrayKosten += (extraPieces * perUnit);
+      }
+      
+      const totalCost = transportKosten + xrayKosten;
+      
+      // 5. Speichere die berechneten Kosten
+      setKosten(prev => ({
+        ...prev,
+        [typ]: { 
+          status: 'calculated', 
+          betrag: totalCost,
+          partner_id: partnerId,
+          partner_name: partner.name,
+          details: { 
+            zone: zoneData.zone_code, 
+            plz: pickupPLZ,
+            transport: `€${transportKosten.toFixed(2)}`,
+            xray: `€${xrayKosten.toFixed(2)}`,
+            breakdown: `Transport: €${transportKosten.toFixed(2)}, X-Ray: €${xrayKosten.toFixed(2)}`
+          },
+          source: 'database'
+        }
+      }));
+      
+      console.log(`💰 ${partner.name} Kostenberechnung erfolgreich:`);
+      console.log(`   PLZ ${pickupPLZ} → Zone ${zoneData.zone_code}`);
+      console.log(`   Transport ${gewicht}kg: €${transportKosten.toFixed(2)}`);
+      console.log(`   X-Ray ${pieces} Stück: €${xrayKosten.toFixed(2)}`);
+      console.log(`   GESAMT: €${totalCost.toFixed(2)}`);
+      
+   } catch (dbError) {
+      console.error(`❌ Fehler bei ${partner.name}-Berechnung:`, dbError);
       setKosten(prev => ({
         ...prev,
         [typ]: { 
           status: 'manual', 
           betrag: 0,
           partner_id: partnerId,
-          partner_name: partner?.name || 'Unbekannt',
-          message: typ === 'abholung' ? 'Keine Tarife für diese Route' : 'Manuelle Anfrage erforderlich'
+          partner_name: partner.name,
+          message: 'Datenbankfehler: ' + dbError.message
         }
       }));
-      
+    }
+  }
+} else if (typ === 'abholung') {
+  // Andere Abholpartner (nicht HuT/BAT/Böpple)
+  setKosten(prev => ({
+    ...prev,
+    [typ]: { 
+      status: 'manual', 
+      betrag: 0,
+      partner_id: partnerId,
+      partner_name: partner?.name || 'Unbekannt',
+      message: 'Manuelle Anfrage erforderlich'
+    }
+  }));
+} else {
+  // Fallback für andere Typen (hauptlauf, zustellung)
+  setKosten(prev => ({
+    ...prev,
+    [typ]: { 
+      status: 'manual', 
+      betrag: 0,
+      partner_id: partnerId,
+      partner_name: partner?.name || 'Unbekannt',
+      message: 'Manuelle Anfrage erforderlich'
+    }
+  }));
+}
     } catch (error) {
       console.error('Fehler beim Abrufen der Kosten:', error);
       setKosten(prev => ({
@@ -625,8 +771,16 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
 
   // 🔧 DEBUG: Zeige aktuelle Partner und Kosten
   console.log('=== ANFRAGE SPEICHERN DEBUG ===');
-  console.log('Partners:', partners);
-  console.log('Kosten:', kosten);
+console.log('Partners:', partners);
+console.log('Kosten:', kosten);
+console.log('Kosten Details:');
+console.log('- Abholung:', kosten.abholung);
+console.log('- Hauptlauf:', kosten.hauptlauf);
+console.log('- Zustellung:', kosten.zustellung);
+console.log('Kosten-Beträge:');
+console.log('- Abholung Betrag:', kosten.abholung?.betrag);
+console.log('- Hauptlauf Betrag:', kosten.hauptlauf?.betrag);
+console.log('- Zustellung Betrag:', kosten.zustellung?.betrag);
   console.log('selectedWebCargoRate:', selectedWebCargoRate);
 
   try {
@@ -669,20 +823,29 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
       mainrun_partner_id: partners.hauptlauf ? parseInt(partners.hauptlauf) : null,
       delivery_partner_id: partners.zustellung ? parseInt(partners.zustellung) : null,
       
-      // 💰 KOSTEN AUS KALKULATION ÜBERNEHMEN - MIT DEBUG
-      pickup_cost: (() => {
-        const cost = kosten.abholung?.betrag || 0;
-        console.log('🚚 DEBUG Pickup Cost:', cost, 'aus kosten.abholung:', kosten.abholung);
-        return cost;
-      })(),
+      // 💰 KOSTEN AUS KALKULATION ÜBERNEHMEN - KORRIGIERT
+pickup_cost: (() => {
+  // Prüfe verschiedene Varianten wie die Kosten gespeichert sein könnten
+  const cost = kosten.abholung?.betrag || 
+               kosten.abholung?.amount || 
+               kosten.abholung?.total || 
+               0;
+  console.log('🚚 DEBUG Pickup Cost:', cost);
+  console.log('🚚 kosten.abholung komplett:', JSON.stringify(kosten.abholung, null, 2));
+  return parseFloat(cost) || 0;
+})(),
       main_cost: (() => {
-        const hauptlaufCost = kosten.hauptlauf?.betrag || 0;
-        const webCargoCost = selectedWebCargoRate?.total || 0;
-        const total = hauptlaufCost + webCargoCost;
-        console.log('✈️ DEBUG Main Cost:', total, '= hauptlauf:', hauptlaufCost, '+ webCargo:', webCargoCost);
-        console.log('selectedWebCargoRate:', selectedWebCargoRate);
-        return total;
-      })(),
+  const hauptlaufCost = kosten.hauptlauf?.betrag || 
+                       kosten.hauptlauf?.amount || 
+                       kosten.hauptlauf?.total || 
+                       0;
+  const webCargoCost = selectedWebCargoRate?.total || 0;
+  const total = parseFloat(hauptlaufCost) + parseFloat(webCargoCost);
+  console.log('✈️ DEBUG Main Cost:', total);
+  console.log('✈️ kosten.hauptlauf:', JSON.stringify(kosten.hauptlauf, null, 2));
+  console.log('✈️ selectedWebCargoRate:', selectedWebCargoRate);
+  return total;
+})(),
       delivery_cost: (() => {
         const cost = kosten.zustellung?.betrag || 0;
         console.log('📦 DEBUG Delivery Cost:', cost, 'aus kosten.zustellung:', kosten.zustellung);
@@ -714,29 +877,20 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
   
   // Standard-Werte
   incoterm: 'CPT',
-  commodity: sendungData.warenbeschreibung || null,
+  commodity: sendungData.warenbeschreibung || null
   
   // Partner-Namen für Anzeige
-  pickup_partner: availablePartners.find(p => p.id === partners.abholung)?.name || null,
-  mainrun_partner: availablePartners.find(p => p.id === partners.hauptlauf)?.name || null,
-  delivery_partner: availablePartners.find(p => p.id === partners.zustellung)?.name || null,
+  // Partner-Namen für Anzeige - ENTFERNT weil DB diese Spalten nicht hat
+  // pickup_partner: availablePartners.find(p => p.id === partners.abholung)?.name || null,
+  // mainrun_partner: availablePartners.find(p => p.id === partners.hauptlauf)?.name || null,
+  // delivery_partner: availablePartners.find(p => p.id === partners.zustellung)?.name || null,
   
-  // PIECES ARRAY
-  pieces: sendungData.colli?.map(c => ({
-    quantity: parseInt(c.anzahl) || 1,
-    weight_per_piece: parseFloat(c.gewichtProStueck) || 0,
-    length: parseFloat(c.laenge) || 0,
-    width: parseFloat(c.breite) || 0,
-    height: parseFloat(c.hoehe) || 0,
-    volume: parseFloat(c.volumen) || 0
-  })) || [{
-    quantity: parseInt(sendungData.gesamtColli) || 1,
-    weight_per_piece: (parseFloat(sendungData.gesamtGewicht) || 0) / (parseInt(sendungData.gesamtColli) || 1),
-    length: 0,
-    width: 0,
-    height: 0,
-    volume: (parseFloat(sendungData.gesamtVolumen) || 0) / (parseInt(sendungData.gesamtColli) || 1)
-  }],
+ // PIECES ARRAY - ENTFERNT weil shipments Tabelle kein pieces Array hat
+  // pieces: sendungData.colli?.map(c => ({
+  //   ...
+  // }]) || [{
+  //   ...
+  // }],
 };
     
     // HIER DIE DEBUG-AUSGABEN - NACH anfrageData!
@@ -1061,20 +1215,49 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
-                  {kosten.abholung.status === 'calculated' && (
-                    <div style={{ marginTop: '8px', fontSize: '0.875rem' }}>
-                      <div style={{ fontWeight: '600', color: '#059669' }}>
-                        Gesamt: {kosten.abholung.betrag.toFixed(2)}€
-                      </div>
-                      {kosten.abholung.details && (
-                        <div style={{ marginTop: '4px', color: '#6b7280', fontSize: '0.75rem' }}>
-                          <div>Transport: {kosten.abholung.details.transport}</div>
-                          <div>X-Ray: {kosten.abholung.details.xray}</div>
-                          {kosten.abholung.zone && <div>Zone: {kosten.abholung.zone}</div>}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* HuT Kosten-Anzeige im gleichen Stil wie WebCargo */}
+{kosten.abholung.status === 'calculated' && kosten.abholung.betrag > 0 && (
+  <div style={{ 
+    marginTop: '12px', 
+    padding: '12px', 
+    backgroundColor: '#dbeafe', 
+    borderRadius: '4px' 
+  }}>
+    <div style={{ fontSize: '0.875rem' }}>
+      <strong>{kosten.abholung.partner_name || 'HuT'}</strong> - Abholung bestätigt
+      <br />
+      PLZ: {kosten.abholung.details?.plz} → Zone: {kosten.abholung.details?.zone}
+      <br />
+      Transport: {kosten.abholung.details?.transport}
+      <br />
+      X-Ray: {kosten.abholung.details?.xray}
+      <br />
+      <span style={{ 
+        fontSize: '1.125rem', 
+        fontWeight: '600', 
+        color: '#1e40af' 
+      }}>
+        €{kosten.abholung.betrag.toFixed(2)}
+      </span>
+    </div>
+  </div>
+)}
+
+{/* Loading State für HuT */}
+{kosten.abholung.status === 'loading' && (
+  <div style={{ marginTop: '8px', color: '#3b82f6', fontSize: '0.875rem' }}>
+    <RefreshCw style={{ width: '14px', height: '14px', display: 'inline', marginRight: '4px' }} />
+    HuT-Tarif wird berechnet...
+  </div>
+)}
+
+{/* Manuelle Anfrage erforderlich */}
+{kosten.abholung.status === 'manual' && (
+  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fef3c7', borderRadius: '4px', fontSize: '0.875rem' }}>
+    <AlertCircle style={{ width: '14px', height: '14px', display: 'inline', marginRight: '4px', color: '#f59e0b' }} />
+    {kosten.abholung.message || 'Manuelle Anfrage erforderlich'}
+  </div>
+)}
                 </div>
               </div>
 

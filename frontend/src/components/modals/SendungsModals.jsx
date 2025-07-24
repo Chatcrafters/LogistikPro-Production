@@ -4,7 +4,7 @@ import {
   X, Check, AlertCircle, Euro, FileText, Calendar, 
   Clock, MapPin, User, Phone, Mail, Package, Truck, Plane
 } from 'lucide-react';
-import { formatDate, formatDateTime, getTrafficLightColor, formatCurrency } from '../utils/formatters';
+import { formatDate, formatDateTime, getTrafficLightColor, formatCurrency } from '../../utils/formatters';
 
 const SendungsModals = ({
   // Status Popup Props

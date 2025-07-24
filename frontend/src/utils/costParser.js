@@ -537,12 +537,44 @@ export const handleSaveCosts = async (shipmentId, costs) => {
       throw new Error('Keine Sendungs-ID übergeben');
     }
     
+    // WICHTIG: Zuerst die EXISTIERENDEN Kosten holen
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    );
+    
+    // Hole aktuelle Kosten aus der DB
+    const { data: existingData, error: fetchError } = await supabase
+      .from('shipments')
+      .select('pickup_cost, main_cost, delivery_cost, cost_pickup, cost_mainrun, cost_delivery')
+      .eq('id', shipmentId)
+      .single();
+    
+    if (fetchError) {
+      console.error('Fehler beim Abrufen existierender Kosten:', fetchError);
+    }
+    
+    // Existierende Kosten (berücksichtige beide Feldnamen-Varianten)
+    const existingPickupCost = existingData?.pickup_cost || existingData?.cost_pickup || 0;
+    const existingMainCost = existingData?.main_cost || existingData?.cost_mainrun || 0;
+    const existingDeliveryCost = existingData?.delivery_cost || existingData?.cost_delivery || 0;
+    
+    console.log('📊 Existierende Kosten:', {
+      pickup: existingPickupCost,
+      main: existingMainCost,
+      delivery: existingDeliveryCost
+    });
+    
+    // Kombiniere existierende + neue Kosten
+    // Nur überschreiben wenn neue Kosten > 0 sind
     const cleanCosts = {
-      pickup_cost: parseFloat(costs.pickup_cost || 0),
-      main_cost: parseFloat(costs.main_cost || costs.mainrun_cost || 0),
-      delivery_cost: parseFloat(costs.delivery_cost || 0)
+      pickup_cost: costs.pickup_cost > 0 ? parseFloat(costs.pickup_cost) : existingPickupCost,
+      main_cost: costs.main_cost > 0 ? parseFloat(costs.main_cost || costs.mainrun_cost || 0) : existingMainCost,
+      delivery_cost: parseFloat(costs.delivery_cost || 0) // Zustellung immer neu
     };
     
+    console.log('💰 Finale Kosten (existierend + neu):', cleanCosts);    
     console.log('🧹 Bereinigte Kosten:', cleanCosts);
     
     // Try Backend API first

@@ -3,13 +3,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Download, Filter, RotateCcw, Package, FileQuestion, FileText, BarChart3 } from 'lucide-react';
 
 // Import der Module
-// Import der Module
 import useSendungsData from '../hooks/useSendungsData';
 import SendungsTable from './SendungsTable';
+import SendungsModals from './modals/SendungsModals.jsx';
 import { processMagicInput, handleSaveCosts } from '../utils/costParser';
 import { formatDate, formatDateTime, getStatusColor } from '../utils/formatters';
 
-const SendungsBoard = ({ user, onLogout }) => {
+const SendungsBoard = ({ supabase, user, onNavigate }) => {
   // Hook für Datenmanagement
   const {
     sendungen,
@@ -40,6 +40,7 @@ const SendungsBoard = ({ user, onLogout }) => {
   const [selectedAnfrage, setSelectedAnfrage] = useState(null);
   const [magicCostText, setMagicCostText] = useState('');
   const [selectedSendung, setSelectedSendung] = useState(null);
+  const [tempCosts, setTempCosts] = useState({});
 
   // Refs
   const popupRef = useRef(null);
@@ -440,7 +441,10 @@ Finalen Verkaufspreis eingeben:`;
             </p>
           </div>
 
-          <button onClick={onLogout} style={{
+          <button onClick={() => {
+            supabase.auth.signOut();
+            window.location.href = '/';
+          }} style={{
             padding: '12px 24px',
             backgroundColor: '#dc2626',
             color: 'white',
@@ -574,164 +578,314 @@ Finalen Verkaufspreis eingeben:`;
         onCostInputClick={handleCostInputClick}
       />
 
-      {/* Magic Cost Input Modal */}
-      {showCostInput && selectedAnfrage && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
+     {/* Verbessertes Kosten-Input Modal mit 3 Feldern */}
+{showCostInput && selectedAnfrage && (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999
+  }}>
+    <div style={{
+      backgroundColor: 'white',
+      padding: '32px',
+      borderRadius: '16px',
+      boxShadow: '0 20px 25px rgba(0, 0, 0, 0.25)',
+      width: '90%',
+      maxWidth: '700px',
+      maxHeight: '90vh',
+      overflow: 'auto'
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        marginBottom: '24px'
+      }}>
+        <h2 style={{ 
+          margin: 0, 
+          fontSize: '20px', 
+          fontWeight: '600',
+          color: '#1f2937'
         }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '16px',
-            boxShadow: '0 20px 25px rgba(0, 0, 0, 0.25)',
-            width: '90%',
-            maxWidth: '600px',
-            maxHeight: '80vh',
-            overflow: 'auto'
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-              marginBottom: '24px'
-            }}>
-              <h2 style={{ 
-                margin: 0, 
-                fontSize: '20px', 
-                fontWeight: '600',
-                color: '#1f2937'
-              }}>
-                💰 Magic Cost Input
-              </h2>
-              <button
-                onClick={() => {
-                  setShowCostInput(false);
-                  setSelectedAnfrage(null);
-                  setMagicCostText('');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: '#6b7280',
-                  padding: '4px'
-                }}
-              >
-                ×
-              </button>
-            </div>
+          💰 Kosten erfassen
+        </h2>
+        <button
+          onClick={() => {
+            setShowCostInput(false);
+            setSelectedAnfrage(null);
+            setMagicCostText('');
+            setTempCosts({});
+          }}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '24px',
+            cursor: 'pointer',
+            color: '#6b7280',
+            padding: '4px'
+          }}
+        >
+          ×
+        </button>
+      </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{
-                fontSize: '14px',
-                color: '#374151',
-                marginBottom: '16px',
-                padding: '16px',
-                backgroundColor: '#f8fafc',
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{
+          fontSize: '14px',
+          color: '#374151',
+          marginBottom: '16px',
+          padding: '16px',
+          backgroundColor: '#f8fafc',
+          borderRadius: '8px',
+          border: '1px solid #e5e7eb'
+        }}>
+          <strong>📦 Anfrage:</strong> {selectedAnfrage.position}<br />
+          <strong>📍 Route:</strong> {selectedAnfrage.origin_airport} → {selectedAnfrage.destination_airport}<br />
+          <strong>⚖️ Gewicht:</strong> {selectedAnfrage.total_weight} kg | {selectedAnfrage.total_pieces} Colli
+        </div>
+
+        {/* 3 KOSTEN-FELDER */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: '1fr 1fr 1fr', 
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          {/* VORLAUF */}
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              🚚 Vorlauf/Abholung
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={tempCosts.pickup || selectedAnfrage.pickup_cost || selectedAnfrage.cost_pickup || ''}
+              onChange={(e) => setTempCosts({...tempCosts, pickup: e.target.value})}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #e5e7eb',
                 borderRadius: '8px',
-                border: '1px solid #e5e7eb'
-              }}>
-                <strong>📦 Anfrage:</strong> {selectedAnfrage.position}<br />
-                <strong>📍 Route:</strong> {selectedAnfrage.origin_airport} → {selectedAnfrage.destination_airport}<br />
-                <strong>⚖️ Gewicht:</strong> {selectedAnfrage.total_weight} kg | {selectedAnfrage.total_pieces} Colli
+                fontSize: '16px',
+                fontWeight: '600'
+              }}
+            />
+            {(selectedAnfrage.pickup_cost > 0 || selectedAnfrage.cost_pickup > 0) && (
+              <div style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
+                ✅ Bereits erfasst
               </div>
+            )}
+          </div>
 
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#374151',
-                marginBottom: '8px'
-              }}>
-                🧠 E-Mail Text oder Kosten-Antwort:
-              </label>
-              
-              <textarea
-                value={magicCostText}
-                onChange={(e) => setMagicCostText(e.target.value)}
-                placeholder={`Fügen Sie hier den E-Mail-Text ein, z.B.:
-
-"Hallo,
-Abholung Stuttgart: €85
-Luftfracht STR-LAX: €2.45/kg  
-Zustellung LAX: $450
-Customs Clearance: $150
-
-Mit freundlichen Grüßen"`}
-                style={{
-                  width: '100%',
-                  height: '200px',
-                  padding: '12px',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontFamily: 'monospace',
-                  resize: 'vertical',
-                  outline: 'none'
-                }}
-              />
-            </div>
-
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'flex-end'
+          {/* HAUPTLAUF */}
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#374151',
+              marginBottom: '8px'
             }}>
-              <button
-                onClick={() => {
-                  setShowCostInput(false);
-                  setSelectedAnfrage(null);
-                  setMagicCostText('');
-                }}
-                style={{
-                  padding: '12px 20px',
-                  backgroundColor: 'transparent',
-                  color: '#6b7280',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                Abbrechen
-              </button>
+              ✈️ Hauptlauf
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={tempCosts.main || selectedAnfrage.main_cost || selectedAnfrage.cost_mainrun || ''}
+              onChange={(e) => setTempCosts({...tempCosts, main: e.target.value})}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600'
+              }}
+            />
+            {(selectedAnfrage.main_cost > 0 || selectedAnfrage.cost_mainrun > 0) && (
+              <div style={{ fontSize: '12px', color: '#10b981', marginTop: '4px' }}>
+                ✅ Bereits erfasst
+              </div>
+            )}
+          </div>
 
-              <button
-                onClick={() => {
-                  if (!magicCostText.trim()) {
-                    alert('Bitte Text eingeben!');
-                    return;
-                  }
-                  handleProcessMagicInput(magicCostText, selectedAnfrage);
-                }}
-                disabled={!magicCostText.trim()}
-                style={{
-                  padding: '12px 20px',
-                  backgroundColor: '#10b981',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: magicCostText.trim() ? 'pointer' : 'not-allowed',
-                  fontWeight: '600',
-                  opacity: magicCostText.trim() ? 1 : 0.5
-                }}
-              >
-                🧠 Kosten erkennen
-              </button>
-            </div>
+          {/* NACHLAUF */}
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              📦 Nachlauf/Zustellung
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={tempCosts.delivery || selectedAnfrage.delivery_cost || selectedAnfrage.cost_delivery || ''}
+              onChange={(e) => setTempCosts({...tempCosts, delivery: e.target.value})}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600'
+              }}
+            />
           </div>
         </div>
-      )}
+
+        {/* GESAMT */}
+        <div style={{
+          padding: '16px',
+          backgroundColor: '#dbeafe',
+          borderRadius: '8px',
+          marginBottom: '24px',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '14px', color: '#1e40af', marginBottom: '4px' }}>
+            💰 Gesamtkosten
+          </div>
+          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1e40af' }}>
+            €{(
+              parseFloat(tempCosts.pickup || selectedAnfrage.pickup_cost || 0) +
+              parseFloat(tempCosts.main || selectedAnfrage.main_cost || 0) +
+              parseFloat(tempCosts.delivery || 0)
+            ).toFixed(2)}
+          </div>
+        </div>
+
+        {/* MAGIC INPUT OPTION */}
+        <details style={{ marginBottom: '16px' }}>
+          <summary style={{
+            cursor: 'pointer',
+            padding: '12px',
+            backgroundColor: '#f3f4f6',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}>
+            🧠 E-Mail Text auslesen (Optional)
+          </summary>
+          
+          <div style={{ marginTop: '12px' }}>
+            <textarea
+              value={magicCostText}
+              onChange={(e) => setMagicCostText(e.target.value)}
+              placeholder={`Fügen Sie hier den E-Mail-Text ein...`}
+              style={{
+                width: '100%',
+                height: '150px',
+                padding: '12px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontFamily: 'monospace',
+                resize: 'vertical'
+              }}
+            />
+            <button
+              onClick={() => {
+                if (!magicCostText.trim()) {
+                  alert('Bitte Text eingeben!');
+                  return;
+                }
+                handleProcessMagicInput(magicCostText, selectedAnfrage);
+              }}
+              style={{
+                marginTop: '8px',
+                padding: '8px 16px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: '600'
+              }}
+            >
+              🧠 Text analysieren
+            </button>
+          </div>
+        </details>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        justifyContent: 'flex-end'
+      }}>
+        <button
+          onClick={() => {
+            setShowCostInput(false);
+            setSelectedAnfrage(null);
+            setMagicCostText('');
+            setTempCosts({});
+          }}
+          style={{
+            padding: '12px 20px',
+            backgroundColor: 'transparent',
+            color: '#6b7280',
+            border: '2px solid #e5e7eb',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '600'
+          }}
+        >
+          Abbrechen
+        </button>
+
+        <button
+          onClick={async () => {
+            const finalCosts = {
+              pickup_cost: parseFloat(tempCosts.pickup || selectedAnfrage.pickup_cost || 0),
+              main_cost: parseFloat(tempCosts.main || selectedAnfrage.main_cost || 0),
+              delivery_cost: parseFloat(tempCosts.delivery || 0)
+            };
+            
+            const success = await handleSaveCosts(selectedAnfrage.id, finalCosts);
+            if (success) {
+              setShowCostInput(false);
+              setSelectedAnfrage(null);
+              setMagicCostText('');
+              setTempCosts({});
+              loadAllData();
+            }
+          }}
+          style={{
+            padding: '12px 20px',
+            backgroundColor: '#2563eb',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '600'
+          }}
+        >
+          💾 Kosten speichern
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Loading Overlay */}
       {loading && (
@@ -767,6 +921,34 @@ Mit freundlichen Grüßen"`}
           </div>
         </div>
       )}
+
+      {/* SendungsModals Integration - ALLE MODALS HIER */}
+      <SendungsModals
+        // Status Popup Props
+        showStatusPopup={showStatusPopup}
+        statusPopupData={statusPopupData}
+        popupPosition={popupPosition}
+        popupRef={popupRef}
+        onStatusUpdate={handleStatusUpdate}
+        onCloseStatusPopup={() => setShowStatusPopup(false)}
+        
+        // Cost Input Props
+        showCostInput={showCostInput}
+        selectedAnfrage={selectedAnfrage}
+        magicCostText={magicCostText}
+        onMagicCostTextChange={setMagicCostText}
+        onCloseCostInput={() => {
+          setShowCostInput(false);
+          setSelectedAnfrage(null);
+          setMagicCostText('');
+        }}
+        onProcessMagicInput={handleProcessMagicInput}
+        
+        // Edit Modal Props
+        selectedSendung={selectedSendung}
+        onCloseEdit={() => setSelectedSendung(null)}
+        onSaveSendung={handleSaveSendung}
+      />
 
       <style>{`
         @keyframes spin {

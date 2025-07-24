@@ -119,8 +119,8 @@ const shipmentService = {
         .select(`
           id,
           name,
-          email,
-          phone,
+          emails,
+          phones,
           pickup_addresses (
             id,
             street,
@@ -147,7 +147,7 @@ const shipmentService = {
       try {
         const { data, error } = await supabase
           .from('customers')
-          .select('id, name, email, phone')
+          .select('id, name, emails, phones')
           .order('name');
         
         if (error) throw error;
