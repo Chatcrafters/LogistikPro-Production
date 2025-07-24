@@ -1,285 +1,430 @@
-// src/services/shipmentService.js
-const API_URL = 'http://localhost:3001/api';
+// frontend/src/services/shipmentService.js - Supabase Version
+import supabase from '../supabaseClient';
 
-export const shipmentService = {
+const shipmentService = {
   // Alle Sendungen abrufen
   async getShipments() {
-    const response = await fetch(`${API_URL}/shipments`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Sendungen');
-    const result = await response.json();
-    return result.data || []; // Extrahiere das data Array aus der Response
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Sendungen:', error);
+      throw new Error('Fehler beim Abrufen der Sendungen');
+    }
   },
 
   // Einzelne Sendung
   async getShipment(id) {
-    const response = await fetch(`${API_URL}/shipments/${id}`);
-    if (!response.ok) throw new Error('Sendung nicht gefunden');
-    return response.json();
-  },
-
-  // Neue Sendung erstellen
-  async createShipment(data) {
     try {
-      const response = await fetch(`${API_URL}/shipments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .eq('id', id)
+        .single();
       
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error('API Fehler:', result);
-        throw new Error(result.error || 'Fehler beim Erstellen');
-      }
-      
-      return result;
+      if (error) throw error;
+      return data;
     } catch (error) {
-      console.error('Fehler Details:', error);
-      throw error;
+      console.error('Sendung nicht gefunden:', error);
+      throw new Error('Sendung nicht gefunden');
     }
   },
 
-  // Partner zuweisen
-  async assignPartners(id, data) {
-    const response = await fetch(`${API_URL}/shipments/${id}/partners`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error('Fehler beim Zuweisen');
-    return response.json();
+  // Neue Sendung erstellen
+  async createShipment(shipmentData) {
+    try {
+      console.log('📤 Creating shipment with data:', shipmentData);
+      
+      // Bereite Daten für Supabase vor
+      const supabaseData = {
+        position: shipmentData.position,
+        customer_id: shipmentData.kunde_id || shipmentData.customer_id,
+        pickup_address_id: shipmentData.abholort_id || shipmentData.pickup_address_id,
+        reference: shipmentData.referenz || shipmentData.reference,
+        status: shipmentData.status || 'ANFRAGE',
+        
+        // Transport Details
+        transport_type: shipmentData.transportArt === 'luftfracht' ? 'AIR' : 
+                       shipmentData.transportArt === 'seefracht' ? 'SEA' : 
+                       shipmentData.transportArt === 'lkw' ? 'TRUCK' : 'AIR',
+        import_export: (shipmentData.importExport || 'export').toUpperCase(),
+        origin_airport: shipmentData.vonFlughafen || shipmentData.origin_airport,
+        destination_airport: shipmentData.nachFlughafen || shipmentData.destination_airport,
+        
+        // Termine
+        pickup_date: shipmentData.abholDatum || shipmentData.pickup_date,
+        pickup_time: shipmentData.abholZeit || shipmentData.pickup_time,
+        delivery_date: shipmentData.deadline || shipmentData.delivery_date,
+        
+        // Packstücke
+        total_pieces: parseInt(shipmentData.gesamtColli || shipmentData.total_pieces || 0),
+        total_weight: parseFloat(shipmentData.gesamtGewicht || shipmentData.total_weight || 0),
+        total_volume: parseFloat(shipmentData.gesamtVolumen || shipmentData.total_volume || 0),
+        
+        // Empfänger
+        recipient_name: shipmentData.empfaenger?.name || shipmentData.recipient_name,
+        recipient_street: shipmentData.empfaenger?.strasse || shipmentData.recipient_street,
+        recipient_zip: shipmentData.empfaenger?.plz || shipmentData.recipient_zip,
+        recipient_city: shipmentData.empfaenger?.ort || shipmentData.recipient_city,
+        recipient_country: shipmentData.empfaenger?.land || shipmentData.recipient_country,
+        
+        // Zusatz
+        incoterm: shipmentData.frankatur || shipmentData.incoterm || 'CPT',
+        commodity: shipmentData.warenbeschreibung || shipmentData.commodity,
+        special_instructions: shipmentData.sonderanweisungen || shipmentData.special_instructions,
+        declared_value: parseFloat(shipmentData.warenwert || shipmentData.declared_value || 0),
+        
+        // Partner
+        pickup_partner_id: shipmentData.pickup_partner_id,
+        mainrun_partner_id: shipmentData.mainrun_partner_id,
+        delivery_partner_id: shipmentData.delivery_partner_id,
+        
+        // Metadaten
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log('📦 Supabase data prepared:', supabaseData);
+      
+      const { data, error } = await supabase
+        .from('shipments')
+        .insert(supabaseData)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        throw error;
+      }
+      
+      console.log('✅ Shipment created:', data);
+      return data;
+      
+    } catch (error) {
+      console.error('💥 Create shipment error:', error);
+      throw new Error(`Fehler beim Erstellen: ${error.message}`);
+    }
   },
 
   // Kunden abrufen
   async getCustomers() {
-    const response = await fetch(`${API_URL}/customers`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Kunden');
-    return response.json();
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select(`
+          id,
+          name,
+          email,
+          phone,
+          pickup_addresses (
+            id,
+            street,
+            zip,
+            city,
+            country,
+            pickup_times (
+              day_of_week,
+              time_from,
+              time_to
+            )
+          )
+        `)
+        .order('name');
+      
+      if (error) throw error;
+      
+      console.log('👥 Loaded customers:', data?.length);
+      return data || [];
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Kunden:', error);
+      
+      // Fallback: Vereinfachte Abfrage ohne Relations
+      try {
+        const { data, error } = await supabase
+          .from('customers')
+          .select('id, name, email, phone')
+          .order('name');
+        
+        if (error) throw error;
+        
+        return data?.map(customer => ({
+          ...customer,
+          pickup_addresses: [] // Leerer Array als Fallback
+        })) || [];
+      } catch (fallbackError) {
+        console.error('Auch Fallback fehlgeschlagen:', fallbackError);
+        throw new Error('Fehler beim Abrufen der Kunden');
+      }
+    }
   },
 
   // Partner abrufen
   async getPartners() {
-    const response = await fetch(`${API_URL}/partners`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Partner');
-    return response.json();
+    try {
+      const { data, error } = await supabase
+        .from('partners')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      
+      console.log('🤝 Loaded partners:', data?.length);
+      return data || [];
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Partner:', error);
+      throw new Error('Fehler beim Abrufen der Partner');
+    }
   },
 
   // Flughäfen abrufen
   async getAirports() {
-    const response = await fetch(`${API_URL}/airports`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Flughäfen');
-    return response.json();
+    try {
+      const { data, error } = await supabase
+        .from('airports')
+        .select('*')
+        .order('code');
+      
+      if (error) throw error;
+      
+      console.log('✈️ Loaded airports:', data?.length);
+      return data || [];
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Flughäfen:', error);
+      
+      // Fallback: Standard-Flughäfen
+      return [
+        { code: 'STR', name: 'Stuttgart', city: 'Stuttgart', country: 'DE' },
+        { code: 'FRA', name: 'Frankfurt', city: 'Frankfurt', country: 'DE' },
+        { code: 'LAX', name: 'Los Angeles', city: 'Los Angeles', country: 'US' },
+        { code: 'JFK', name: 'New York JFK', city: 'New York', country: 'US' },
+        { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', country: 'FR' },
+        { code: 'LHR', name: 'London Heathrow', city: 'London', country: 'GB' }
+      ];
+    }
   },
 
   // Status aktualisieren
   async updateShipmentStatus(id, status) {
-    const response = await fetch(`${API_URL}/shipments/${id}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    if (!response.ok) throw new Error('Fehler beim Aktualisieren des Status');
-    return response.json();
-  },
-
-  // Milestone Update
-  async updateMilestone(shipmentId, milestoneId) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/milestone`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ milestone_id: milestoneId })
-    });
-    
-    if (!response.ok) {
-      throw new Error('Fehler beim Aktualisieren des Milestones');
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({ 
+          status: status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Fehler beim Aktualisieren des Status:', error);
+      throw new Error('Fehler beim Aktualisieren des Status');
     }
-    
-    return response.json();
   },
 
   // Sendung aktualisieren
-  async updateShipment(id, data) {
-    const response = await fetch(`${API_URL}/shipments/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error('Fehler beim Aktualisieren der Sendung');
-    return response.json();
+  async updateShipment(id, updateData) {
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          ...updateData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Fehler beim Aktualisieren der Sendung:', error);
+      throw new Error('Fehler beim Aktualisieren der Sendung');
+    }
   },
 
   // Sendung löschen
   async deleteShipment(id) {
-    const response = await fetch(`${API_URL}/shipments/${id}`, {
-      method: 'DELETE'
-    });
-    if (!response.ok) throw new Error('Fehler beim Löschen der Sendung');
-    return response.json();
+    try {
+      const { error } = await supabase
+        .from('shipments')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      return { success: true };
+    } catch (error) {
+      console.error('Fehler beim Löschen der Sendung:', error);
+      throw new Error('Fehler beim Löschen der Sendung');
+    }
   },
 
-  // Historie abrufen
-  async getShipmentHistory(id) {
-    const response = await fetch(`${API_URL}/shipments/${id}/history`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Historie');
-    return response.json();
+  // Partner zuweisen
+  async assignPartners(id, partnerData) {
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          pickup_partner_id: partnerData.pickup_partner_id,
+          mainrun_partner_id: partnerData.mainrun_partner_id,
+          delivery_partner_id: partnerData.delivery_partner_id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Fehler beim Zuweisen der Partner:', error);
+      throw new Error('Fehler beim Zuweisen der Partner');
+    }
   },
 
-  // Dokumente hochladen
-  async uploadDocument(shipmentId, file) {
-    const formData = new FormData();
-    formData.append('document', file);
-    formData.append('shipment_id', shipmentId);
-
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/documents`, {
-      method: 'POST',
-      body: formData
-    });
-    
-    if (!response.ok) throw new Error('Fehler beim Hochladen des Dokuments');
-    return response.json();
+  // Milestone Update
+  async updateMilestone(shipmentId, milestoneData) {
+    try {
+      // Prüfe ob Milestone bereits existiert
+      const { data: existingMilestone, error: checkError } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('shipment_id', shipmentId)
+        .eq('milestone_id', milestoneData.milestone_id)
+        .single();
+      
+      if (existingMilestone) {
+        // Update existing milestone
+        const { data, error } = await supabase
+          .from('milestones')
+          .update({
+            status: milestoneData.status || 'completed',
+            timestamp: milestoneData.timestamp || new Date().toISOString(),
+            description: milestoneData.description,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingMilestone.id)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      } else {
+        // Create new milestone
+        const { data, error } = await supabase
+          .from('milestones')
+          .insert({
+            shipment_id: shipmentId,
+            milestone_id: milestoneData.milestone_id,
+            status: milestoneData.status || 'completed',
+            timestamp: milestoneData.timestamp || new Date().toISOString(),
+            description: milestoneData.description,
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      }
+    } catch (error) {
+      console.error('Fehler beim Milestone Update:', error);
+      throw new Error('Fehler beim Aktualisieren des Milestones');
+    }
   },
 
-  // Dokumente abrufen
-  async getDocuments(shipmentId) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/documents`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Dokumente');
-    return response.json();
-  },
-
-  // Dokument löschen
-  async deleteDocument(shipmentId, documentId) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/documents/${documentId}`, {
-      method: 'DELETE'
-    });
-    if (!response.ok) throw new Error('Fehler beim Löschen des Dokuments');
-    return response.json();
-  },
-
-  // Tracking-URL generieren
-  async generateTrackingUrl(shipmentId) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/tracking-url`, {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Fehler beim Generieren der Tracking-URL');
-    return response.json();
-  },
-
-  // E-Mail senden
-  async sendEmail(shipmentId, emailData) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/send-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(emailData)
-    });
-    if (!response.ok) throw new Error('Fehler beim Senden der E-Mail');
-    return response.json();
+  // Milestones für Sendung abrufen
+  async getShipmentMilestones(shipmentId) {
+    try {
+      const { data, error } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('shipment_id', shipmentId)
+        .order('milestone_id');
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Milestones:', error);
+      throw new Error('Fehler beim Abrufen der Milestones');
+    }
   },
 
   // Statistiken abrufen
-  async getStatistics(dateRange) {
-    const params = new URLSearchParams(dateRange);
-    const response = await fetch(`${API_URL}/statistics?${params}`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Statistiken');
-    return response.json();
-  },
-
-  // Milestones für Sendungstyp abrufen
-  async getMilestonesForType(transportType, shipmentType) {
-    const params = new URLSearchParams({ 
-      transport_type: transportType, 
-      shipment_type: shipmentType 
-    });
-    const response = await fetch(`${API_URL}/milestones?${params}`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Milestones');
-    return response.json();
-  },
-
-  // Bulk-Status-Update
-  async bulkUpdateStatus(shipmentIds, status) {
-    const response = await fetch(`${API_URL}/shipments/bulk-status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shipment_ids: shipmentIds, status })
-    });
-    if (!response.ok) throw new Error('Fehler beim Bulk-Update');
-    return response.json();
-  },
-
-  // Sendung duplizieren
-  async duplicateShipment(id) {
-    const response = await fetch(`${API_URL}/shipments/${id}/duplicate`, {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Fehler beim Duplizieren der Sendung');
-    return response.json();
-  },
-
-  // Export als CSV
-  async exportToCSV(filters) {
-    const params = new URLSearchParams(filters);
-    const response = await fetch(`${API_URL}/shipments/export?${params}`);
-    if (!response.ok) throw new Error('Fehler beim Exportieren');
-    
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = `sendungen_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-  },
-
-  // Suche mit Volltextsuche
-  async searchShipments(query) {
-    const response = await fetch(`${API_URL}/shipments/search?q=${encodeURIComponent(query)}`);
-    if (!response.ok) throw new Error('Fehler bei der Suche');
-    return response.json();
-  },
-
-  // Notiz hinzufügen
-  async addNote(shipmentId, note) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note })
-    });
-    if (!response.ok) throw new Error('Fehler beim Hinzufügen der Notiz');
-    return response.json();
-  },
-
-  // Notizen abrufen
-  async getNotes(shipmentId) {
-    const response = await fetch(`${API_URL}/shipments/${shipmentId}/notes`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Notizen');
-    return response.json();
-  },
-
-  // Dashboard-Daten abrufen
   async getDashboardData() {
-    const response = await fetch(`${API_URL}/dashboard`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Dashboard-Daten');
-    return response.json();
+    try {
+      const { data: shipments, error } = await supabase
+        .from('shipments')
+        .select('status, pickup_date, created_at');
+      
+      if (error) throw error;
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      return {
+        total: shipments?.length || 0,
+        active: shipments?.filter(s => !['zugestellt', 'delivered', 'storniert'].includes(s.status)).length || 0,
+        pickupToday: shipments?.filter(s => s.pickup_date === today).length || 0,
+        inTransit: shipments?.filter(s => s.status === 'in_transit').length || 0,
+        critical: shipments?.filter(s => s.status === 'abgeholt' && s.pickup_date < today).length || 0
+      };
+    } catch (error) {
+      console.error('Fehler beim Abrufen der Dashboard-Daten:', error);
+      return {
+        total: 0,
+        active: 0,
+        pickupToday: 0,
+        inTransit: 0,
+        critical: 0
+      };
+    }
   },
 
-  // Benachrichtigungen abrufen
-  async getNotifications() {
-    const response = await fetch(`${API_URL}/notifications`);
-    if (!response.ok) throw new Error('Fehler beim Abrufen der Benachrichtigungen');
-    return response.json();
+  // Suche
+  async searchShipments(query) {
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .select('*')
+        .or(`position.ilike.%${query}%,reference.ilike.%${query}%,awb_number.ilike.%${query}%`)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Fehler bei der Suche:', error);
+      throw new Error('Fehler bei der Suche');
+    }
   },
 
-  // Benachrichtigung als gelesen markieren
-  async markNotificationAsRead(notificationId) {
-    const response = await fetch(`${API_URL}/notifications/${notificationId}/read`, {
-      method: 'PUT'
-    });
-    if (!response.ok) throw new Error('Fehler beim Markieren der Benachrichtigung');
-    return response.json();
+  // Kosten aktualisieren
+  async updateCosts(shipmentId, costs) {
+    try {
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          cost_pickup: costs.pickup_cost || costs.cost_pickup,
+          cost_mainrun: costs.main_cost || costs.cost_mainrun,
+          cost_delivery: costs.delivery_cost || costs.cost_delivery,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shipmentId)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Fehler beim Aktualisieren der Kosten:', error);
+      throw new Error('Fehler beim Aktualisieren der Kosten');
+    }
   }
 };
 

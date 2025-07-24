@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  X, 
-  ChevronRight, 
-  Package, 
-  Truck, 
-  Plane, 
-  Calculator, 
-  DollarSign, 
+import {
+  X,
+  ChevronRight,
+  Package,
+  Truck,
+  Plane,
+  Calculator,
+  DollarSign,
   CheckCircle,
   AlertCircle,
   Wand2,
@@ -19,6 +19,7 @@ import {
   Save
 } from 'lucide-react';
 import WebCargoRates from './WebCargoRates';
+import supabase from '../supabaseClient';
 
 const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
   console.log('=== PartnerKalkulation Debug ===');
@@ -408,14 +409,38 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
   const loadPartners = async () => {
     try {
       console.log('Lade Partner...');
-      const response = await fetch('http://localhost:3001/api/partners');
-      const partners = await response.json();
+      
+      // SUPABASE statt Express API
+      const { data: partners, error } = await supabase
+        .from('partners')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      
       console.log('Partner geladen:', partners);
-      console.log('Agent-Partner:', partners.filter(p => p.type === 'agent'));
-      setAvailablePartners(partners);
+      console.log('Agent-Partner:', partners?.filter(p => p.type === 'agent'));
+      setAvailablePartners(partners || []);
       setLoading(false);
     } catch (error) {
       console.error('Fehler beim Laden der Partner:', error);
+      
+      // FALLBACK: Mock-Partner falls Supabase nicht verfügbar
+      const mockPartners = [
+        { id: 1, name: 'HuT', type: 'carrier' },
+        { id: 2, name: 'Böpple Automotive GmbH', type: 'carrier' },
+        { id: 23, name: 'BT Blue Transport UG', type: 'carrier' },
+        { id: 7, name: 'Lufthansa Cargo', type: 'airline' },
+        { id: 8, name: 'Air France Cargo', type: 'airline' },
+        { id: 27, name: 'WebCargo', type: 'platform' },
+        { id: 11, name: 'Schaefer Trans LAX', type: 'agent' },
+        { id: 12, name: 'CARS Melbourne', type: 'agent' },
+        { id: 28, name: 'Schaefer Trans ATL', type: 'agent' },
+        { id: 29, name: 'Schaefer Trans MIA', type: 'agent' },
+        { id: 30, name: 'Schaefer Trans JFK', type: 'agent' }
+      ];
+      
+      setAvailablePartners(mockPartners);
       setLoading(false);
     }
   };
@@ -481,37 +506,42 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
         
         console.log('Finale PLZ für Tarifberechnung:', pickupPLZ);
         
-        const tarifeData = {
-  partner_id: partnerId,
-  pickup_plz: pickupPLZ,
-  weight: sendungData.gesamtGewicht || 0,
-  volume: sendungData.gesamtVolumen || 0,
-  pieces: sendungData.gesamtColli || 0,
-  airport: sendungData.vonFlughafen || 'STR'
-};
-
-console.log('Sende an Tarif-API:', tarifeData);
-
-const response = await fetch('http://localhost:3001/api/partner-rates/calculate', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(tarifeData)
-});
-        
-        if (response.ok) {
-          const data = await response.json();
-          setKosten(prev => ({
-            ...prev,
-            [typ]: { 
-              status: 'calculated', 
-              betrag: parseFloat(data.calculation.total),
-              partner_id: partnerId,
-              partner_name: partner.name,
-              details: data.calculation.breakdown,
-              zone: data.zone
+        // SUPABASE: Versuche Zone-Lookup
+        try {
+          const { data: zoneData, error: zoneError } = await supabase
+            .from('hut_postal_zones')
+            .select('zone')
+            .eq('plz', pickupPLZ)
+            .single();
+          
+          if (!zoneError && zoneData) {
+            // Zone gefunden, jetzt Tarif suchen
+            const { data: rateData, error: rateError } = await supabase
+              .from('partner_base_rates')
+              .select('price')
+              .eq('partner_id', partnerId)
+              .eq('zone', zoneData.zone)
+              .lte('weight_from', sendungData.gesamtGewicht || 0)
+              .gte('weight_to', sendungData.gesamtGewicht || 0)
+              .single();
+            
+            if (!rateError && rateData) {
+              setKosten(prev => ({
+                ...prev,
+                [typ]: { 
+                  status: 'calculated', 
+                  betrag: parseFloat(rateData.price),
+                  partner_id: partnerId,
+                  partner_name: partner.name,
+                  details: { zone: zoneData.zone, plz: pickupPLZ },
+                  source: 'database'
+                }
+              }));
+              return;
             }
-          }));
-          return;
+          }
+        } catch (dbError) {
+          console.log('Database-Tarif nicht verfügbar:', dbError.message);
         }
       }
       
@@ -717,20 +747,19 @@ const response = await fetch('http://localhost:3001/api/partner-rates/calculate'
     console.log('Sende Anfrage-Daten:', JSON.stringify(anfrageData, null, 2));
     
     // Speichere in Datenbank
-    const response = await fetch('http://localhost:3001/api/shipments', {
-      // ... rest des Codes ...
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(anfrageData)
-      });
+    // SUPABASE statt Express API
+      const { data, error } = await supabase
+        .from('shipments')
+        .insert(anfrageData)
+        .select()
+        .single();
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('Server-Fehler:', errorData);
-        throw new Error('Fehler beim Speichern der Anfrage: ' + errorData);
+      if (error) {
+        console.error('Supabase-Fehler:', error);
+        throw error;
       }
 
-      const savedShipment = await response.json();
+      const savedShipment = data;
       console.log('Anfrage gespeichert:', savedShipment);
 
       // Zeige Erfolg
