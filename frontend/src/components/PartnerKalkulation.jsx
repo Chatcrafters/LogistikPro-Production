@@ -23,12 +23,19 @@ import supabase from '../supabaseClient';
 
 const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
   console.log('=== PartnerKalkulation Debug ===');
-  console.log('sendungData:', sendungData);
-  console.log('Von:', sendungData.vonFlughafen);
-  console.log('Nach:', sendungData.nachFlughafen);
-  console.log('GEWICHT:', sendungData.gesamtGewicht);
-  console.log('VOLUMEN:', sendungData.gesamtVolumen);
-  console.log('COLLI:', sendungData.gesamtColli);
+console.log('sendungData:', sendungData);
+console.log('Von:', sendungData.vonFlughafen);
+console.log('Nach:', sendungData.nachFlughafen);
+console.log('GEWICHT:', sendungData.gesamtGewicht);
+console.log('VOLUMEN:', sendungData.gesamtVolumen);
+console.log('COLLI:', sendungData.gesamtColli);
+console.log('🔍 KUNDE-DETAILS:');
+console.log('- kunde:', sendungData.kunde);
+console.log('- kunde_id:', sendungData.kunde_id);
+console.log('- customer_id:', sendungData.customer_id);
+console.log('- abholort:', sendungData.abholort);
+console.log('- absenderPlz:', sendungData.absenderPlz);
+console.log('🔍 KOMPLETTE sendungData Keys:', Object.keys(sendungData));
   const [step, setStep] = useState(1); // 1: Partner, 2: Kalkulation, 3: Aktionen
   const [availablePartners, setAvailablePartners] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -89,12 +96,21 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
           console.log('✅ Auto-selected HuT for STR (95% confidence)');
         }
       } else if (vonFlughafen === 'FRA') {
-        // Frankfurt → BAT (85% Confidence - 5/8 FRA Sendungen)
-        const batPartner = availablePartners.find(p => p.id === 23 || p.name.includes('BAT') || p.name.includes('Blue Transport'));
-        if (batPartner) {
-          suggestions.pickup = batPartner.id;
+        // Frankfurt → BT Blue Transport UG (85% Confidence - 5/8 FRA Sendungen)
+        // WICHTIG: Zuerst nach exakter ID suchen um Verwechslungen zu vermeiden
+        let btBluePartner = availablePartners.find(p => p.id === 3);
+        
+        // Nur wenn ID 3 nicht existiert, nach Namen suchen
+        if (!btBluePartner) {
+          btBluePartner = availablePartners.find(p =>
+            p.name === 'BT Blue Transport UG' &&
+            !p.name?.toLowerCase().includes('bat') // Explizit BAT ausschließen
+          );
+        }
+        if (btBluePartner) {
+          suggestions.pickup = btBluePartner.id;
           suggestions.confidence.pickup = 85;
-          console.log('✅ Auto-selected BAT for FRA (85% confidence)');
+          console.log('✅ Auto-selected BT Blue Transport UG for FRA (85% confidence)');
         }
       }
     } else if (transportArt === 'luftfracht-fahrzeuge') {
@@ -199,15 +215,19 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
     const defaults = getIntelligentDefaults(sendungData);
     
     // Wende nur Defaults an, wenn noch keine Partner ausgewählt sind
-    if (defaults.pickup && !partners.abholung) {
-      setPartners(prev => ({
-        ...prev,
-        abholung: defaults.pickup
-      }));
-      // Automatisch Kosten abrufen
-      kostenAbrufen('abholung', defaults.pickup);
-      console.log('🎯 Applied pickup default:', defaults.pickup);
-    }
+if (defaults.pickup && !partners.abholung) {
+  console.log('🎯 Applying pickup default:', defaults.pickup);
+  setPartners(prev => ({
+    ...prev,
+    abholung: defaults.pickup
+  }));
+  
+  // Automatisch Kosten abrufen - MIT VERZÖGERUNG
+  setTimeout(() => {
+    console.log('💰 Triggering automatic cost calculation for partner:', defaults.pickup);
+    kostenAbrufen('abholung', defaults.pickup);
+  }, 1000); // 1 Sekunde warten bis State gesetzt ist
+}
 
     if (defaults.mainrun.length > 0 && !partners.hauptlauf) {
       // Nehme den ersten (primären) Partner
@@ -236,14 +256,23 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
   }, [sendungData, getIntelligentDefaults, partners]);
 
   // Auto-apply defaults when sendungsData and partners are loaded
-  useEffect(() => {
-    if (sendungData && availablePartners.length > 0) {
-      // Kleine Verzögerung um sicherzustellen, dass alle Partner geladen sind
-      setTimeout(() => {
-        applyIntelligentDefaults();
-      }, 500);
-    }
-  }, [sendungData, availablePartners, applyIntelligentDefaults]);
+useEffect(() => {
+  console.log('🎯 useEffect für Defaults - Status:');
+  console.log('- sendungData vorhanden:', !!sendungData);
+  console.log('- availablePartners.length:', availablePartners.length);
+  console.log('- partners.abholung:', partners.abholung);
+  
+  if (sendungData && availablePartners.length > 0 && !partners.abholung) {
+    console.log('🎯 Bedingungen erfüllt! Calling applyIntelligentDefaults in 500ms...');
+    // Kleine Verzögerung um sicherzustellen, dass alle Partner geladen sind
+    setTimeout(() => {
+      console.log('🎯 NOW calling applyIntelligentDefaults');
+      applyIntelligentDefaults();
+    }, 500);
+  } else {
+    console.log('⚠️ Bedingungen NICHT erfüllt für auto-apply');
+  }
+}, [sendungData, availablePartners.length]); // Vereinfachte Dependencies
 
   // Magic Cost Input Handler
   const handleMagicCostInput = (text) => {
@@ -406,19 +435,19 @@ const PartnerKalkulation = ({ sendungData, onClose, onComplete }) => {
     loadPartners();
   }, []);
 
-  const loadPartners = async () => {
-    try {
-      console.log('Lade Partner...');
-      
-      // SUPABASE statt Express API
-      const { data: partners, error } = await supabase
-        .from('partners')
-        .select('*')
-        .order('name');
-      
-      if (error) throw error;
-      
-      console.log('Partner geladen:', partners);
+ const loadPartners = async () => {
+  try {
+    console.log('Lade Partner...');
+    
+    // Nutze Express API für Partner (wie im Backup)
+    const response = await fetch('http://localhost:3001/api/partners');
+    if (!response.ok) {
+      throw new Error('Fehler beim Laden der Partner');
+    }
+    
+    const partners = await response.json();
+    
+    console.log('Partner geladen:', partners);
 console.log('🔍 HuT Partner:', partners?.find(p => p.name === 'HuT'));
       console.log('Agent-Partner:', partners?.filter(p => p.type === 'agent'));
       setAvailablePartners(partners || []);
@@ -472,17 +501,84 @@ console.log('🔍 HuT Partner:', partners?.find(p => p.name === 'HuT'));
 
   // Kosten abrufen (API oder manuell)
   const kostenAbrufen = async (typ, partnerId) => {
-    setKosten(prev => ({
-      ...prev,
-      [typ]: { status: 'loading', betrag: 0 }
-    }));
+  console.log('💰 kostenAbrufen aufgerufen:', { typ, partnerId });
+  
+  setKosten(prev => ({
+    ...prev,
+    [typ]: { status: 'loading', betrag: 0 }
+  }));
 
-    const partner = availablePartners.find(p => p.id === partnerId);
+  const partner = availablePartners.find(p => p.id === partnerId);
+  console.log('💰 Partner gefunden:', partner);
+  
+  if (!partner) {
+    console.error('❌ Partner nicht gefunden für ID:', partnerId);
+    return;
+  }
     
     try {
   // Automatische Tarif-Berechnung für HuT, BAT und Böpple
   if (typ === 'abholung' && (partner.name === 'HuT' || partner.name.includes('BAT') || partner.name.includes('Blue Transport') || partner.name.includes('Böpple'))) {
   console.log(`🎯 ${partner.name} automatische Kostenberechnung startet...`);
+  
+  // 🔵 === ERWEITERTES BAT DEBUGGING ===
+  if (partner.name.includes('BAT') || partner.name.includes('Blue Transport')) {
+    console.log('🔵 === BAT DEBUG START ===');
+    console.log('Partner Name:', partner.name);
+    console.log('Partner ID:', partnerId);
+    
+    // Hole sendungData Details
+    const senderPlz = sendungData.absenderPlz || sendungData.abholort_plz || sendungData.pickup_address?.zip || '';
+    const gewicht = parseFloat(sendungData.gesamtGewicht) || 0;
+    
+    console.log('Sender PLZ:', senderPlz);
+    console.log('Gewicht:', gewicht);
+    
+    // Prüfe BAT Zonen
+    const { data: batZones, error: zoneError } = await supabase
+      .from('bat_postal_zones')
+      .select('*')
+      .eq('postal_code', senderPlz);
+      
+    console.log('BAT Zone Query Result:', batZones);
+    console.log('Zone Error:', zoneError);
+    
+    if (batZones && batZones.length > 0) {
+      const zone = batZones[0];
+      console.log('Zone gefunden:', zone.zone_code);
+      
+      // Prüfe BAT Tarife
+      const { data: batRates, error: rateError } = await supabase
+        .from('partner_base_rates')
+        .select('*')
+        .eq('partner_id', partnerId)
+        .eq('zone_code', zone.zone_code)
+        .gte('weight_to', gewicht)
+        .lte('weight_from', gewicht);
+        
+      console.log('BAT Tarif Query:', {
+        partner_id: partnerId,
+        zone_code: zone.zone_code,
+        weight: gewicht
+      });
+      console.log('BAT Tarife gefunden:', batRates);
+      console.log('Rate Error:', rateError);
+      
+      // Zeige ALLE BAT Tarife für Debug
+      const { data: allBatRates } = await supabase
+        .from('partner_base_rates')
+        .select('zone_code, weight_from, weight_to, base_price')
+        .eq('partner_id', partnerId)
+        .order('zone_code', { ascending: true })
+        .order('weight_from', { ascending: true })
+        .limit(10);
+        
+      console.log('🔵 ALLE BAT Tarife (erste 10):', allBatRates);
+    }
+    
+    console.log('🔵 === BAT DEBUG END ===');
+  }
+  // === ENDE BAT DEBUG ===
   
   // BÖPPLE SPEZIAL-BEHANDLUNG (Fahrzeuge)
   if (partner.name.includes('Böpple')) {
@@ -545,139 +641,126 @@ console.log('🔍 HuT Partner:', partners?.find(p => p.name === 'HuT'));
     }
   }
   
-  // HUT UND BAT BERECHNUNG (Teile-Transporte)
-  else {
-    // 1. Hole PLZ aus sendungData
-    let pickupPLZ = sendungData.absenderPlz || sendungData.abholort_plz || sendungData.pickup_address?.zip || '';
-    
-    // Falls PLZ noch nicht vorhanden, aus abholort extrahieren
-if (!pickupPLZ && sendungData.abholort) {
-  const plzMatch = sendungData.abholort.match(/\b(\d{5})\b/);
-  if (plzMatch) {
-    pickupPLZ = plzMatch[1];
-    console.log('📮 PLZ aus Abholort extrahiert:', pickupPLZ);
-  }
-}
-
-// Extra Debug für Affalterbach
-if (sendungData.abholort?.includes('Affalterbach')) {
-  pickupPLZ = '71563';
-  console.log('📮 Affalterbach erkannt, setze PLZ:', pickupPLZ);
-}
-    
-    const gewicht = parseFloat(sendungData.gesamtGewicht) || 0;
-    const pieces = parseInt(sendungData.gesamtColli) || 1;
-    
-    console.log(`📍 ${partner.name}-Kalkulation: PLZ: ${pickupPLZ}, Gewicht: ${gewicht}kg, Stücke: ${pieces}`);
-    
-    // Wähle die richtige Tabelle basierend auf Partner
-    const isHuT = partner.name === 'HuT';
-    const tableName = isHuT ? 'hut_postal_zones' : 'bat_postal_zones';
-    
-    try {
-      // 2. PLZ zu Zone lookup
-      console.log(`🔍 Suche in Tabelle: ${tableName}`);
-      const { data: zoneData, error: zoneError } = await supabase
-        .from(tableName)
-        .select('zone_code')
-        .eq('postal_code', pickupPLZ)
-        .single();
-      
-      if (zoneError || !zoneData) {
-        console.log(`❌ PLZ ${pickupPLZ} nicht in ${partner.name}-Zonen gefunden`);
-        setKosten(prev => ({
-          ...prev,
-          [typ]: { 
-            status: 'manual', 
-            betrag: 0,
-            partner_id: partnerId,
-            partner_name: partner.name,
-            message: `PLZ ${pickupPLZ} nicht im ${partner.name}-Gebiet. Manuelle Anfrage erforderlich.`
-          }
-        }));
-        return;
+ // HUT UND BAT BERECHNUNG (Teile-Transporte)
+else {
+  // 1. Hole PLZ aus sendungData (WIE IM BACKUP)
+  let pickupPLZ = '70173'; // Fallback Stuttgart
+  
+  // Hole PLZ aus sendungData wenn vorhanden
+  if (sendungData.pickup_address && sendungData.pickup_address.zip) {
+    pickupPLZ = sendungData.pickup_address.zip;
+    console.log('PLZ aus pickup_address:', pickupPLZ);
+  } else if (sendungData.abholort_plz) {
+    pickupPLZ = sendungData.abholort_plz;
+    console.log('PLZ aus abholort_plz:', pickupPLZ);
+  } else if (sendungData.abholort) {
+    // Fallback: Versuche aus String zu extrahieren
+    const plzMatch = sendungData.abholort.match(/\b(\d{5})\b/);
+    if (plzMatch) {
+      pickupPLZ = plzMatch[1];
+      console.log('PLZ aus Abholort extrahiert:', pickupPLZ);
+    } else {
+      // Ortsnamen-Fallback
+      const ortLower = sendungData.abholort.toLowerCase();
+      if (ortLower.includes('affalterbach')) {
+        pickupPLZ = '71563';
+      } else if (ortLower.includes('breuberg')) {
+        pickupPLZ = '64747';  // DELPHEX PLZ
+        console.log('📍 Breuberg erkannt, setze PLZ:', pickupPLZ);
       }
-      
-      console.log(`✅ Zone gefunden: ${zoneData.zone_code}`);
-      
-      // 3. Tarif basierend auf Zone und Gewicht
-      const { data: rateData, error: rateError } = await supabase
-        .from('partner_base_rates')
-        .select('base_price, xray_base, xray_per_unit, xray_included_units')
-        .eq('partner_id', partnerId)
-        .eq('zone_code', zoneData.zone_code)
-        .lte('weight_from', gewicht)
-        .gte('weight_to', gewicht)
-        .single();
-      
-      if (rateError || !rateData) {
-        console.log('❌ Kein Tarif gefunden für Zone/Gewicht');
-        setKosten(prev => ({
-          ...prev,
-          [typ]: { 
-            status: 'manual', 
-            betrag: 0,
-            partner_id: partnerId,
-            partner_name: partner.name,
-            message: `Kein Tarif für ${gewicht}kg in ${zoneData.zone_code}. Manuelle Anfrage erforderlich.`
-          }
-        }));
-        return;
-      }
-      
-      // 4. Berechne Gesamtkosten
-      let transportKosten = parseFloat(rateData.base_price) || 0;
-      let xrayKosten = parseFloat(rateData.xray_base) || 30;
-      
-      // X-Ray Gebühren berechnen
-      const includedUnits = parseInt(rateData.xray_included_units) || 5;
-      if (pieces > includedUnits) {
-        const extraPieces = pieces - includedUnits;
-        const perUnit = parseFloat(rateData.xray_per_unit) || 6;
-        xrayKosten += (extraPieces * perUnit);
-      }
-      
-      const totalCost = transportKosten + xrayKosten;
-      
-      // 5. Speichere die berechneten Kosten
-      setKosten(prev => ({
-        ...prev,
-        [typ]: { 
-          status: 'calculated', 
-          betrag: totalCost,
-          partner_id: partnerId,
-          partner_name: partner.name,
-          details: { 
-            zone: zoneData.zone_code, 
-            plz: pickupPLZ,
-            transport: `€${transportKosten.toFixed(2)}`,
-            xray: `€${xrayKosten.toFixed(2)}`,
-            breakdown: `Transport: €${transportKosten.toFixed(2)}, X-Ray: €${xrayKosten.toFixed(2)}`
-          },
-          source: 'database'
-        }
-      }));
-      
-      console.log(`💰 ${partner.name} Kostenberechnung erfolgreich:`);
-      console.log(`   PLZ ${pickupPLZ} → Zone ${zoneData.zone_code}`);
-      console.log(`   Transport ${gewicht}kg: €${transportKosten.toFixed(2)}`);
-      console.log(`   X-Ray ${pieces} Stück: €${xrayKosten.toFixed(2)}`);
-      console.log(`   GESAMT: €${totalCost.toFixed(2)}`);
-      
-   } catch (dbError) {
-      console.error(`❌ Fehler bei ${partner.name}-Berechnung:`, dbError);
-      setKosten(prev => ({
-        ...prev,
-        [typ]: { 
-          status: 'manual', 
-          betrag: 0,
-          partner_id: partnerId,
-          partner_name: partner.name,
-          message: 'Datenbankfehler: ' + dbError.message
-        }
-      }));
     }
   }
+  
+  // Falls immer noch keine PLZ, versuche über Kunden-ID
+  if (!pickupPLZ || pickupPLZ === '70173') {
+    console.log('🔍 Keine PLZ gefunden, versuche Kunden-Lookup...');
+    
+    let customerId = sendungData.kunde_id || sendungData.customer_id;
+    
+    // Falls keine kunde_id, über Namen suchen
+    if (!customerId && sendungData.kunde) {
+      const { data: customerData, error: customerError } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('company_name', sendungData.kunde)
+        .single();
+        
+      if (customerData && !customerError) {
+        customerId = customerData.id;
+        console.log('✅ Kunden-ID gefunden:', customerId);
+      }
+    }
+    
+    // Jetzt Adresse mit der ID holen
+    if (customerId) {
+      const { data: addresses, error } = await supabase
+        .from('pickup_addresses')
+        .select('zip, city, street')
+        .eq('customer_id', customerId)
+        .eq('is_primary', true)
+        .single();
+        
+      if (addresses && !error) {
+        pickupPLZ = addresses.zip;
+        console.log('✅ PLZ aus Kundenstammdaten:', pickupPLZ, addresses.city);
+      }
+    }
+  }
+  
+  console.log('📮 FINALE PLZ für Tarifberechnung:', pickupPLZ);
+  
+  const tarifeData = {
+    partner_id: partnerId,
+    pickup_plz: pickupPLZ,
+    weight: sendungData.gesamtGewicht || 0,
+    volume: sendungData.gesamtVolumen || 0,
+    pieces: sendungData.gesamtColli || 0,
+    airport: sendungData.vonFlughafen || 'STR'
+  };
+
+  console.log('📤 Sende an Tarif-API:', tarifeData);
+
+ // WICHTIG: Nutze Express Backend API statt direkte Supabase!
+const response = await fetch('http://localhost:3001/api/partner-rates/calculate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(tarifeData)
+});
+
+if (response.ok) {
+  const data = await response.json();
+  console.log('✅ Tarif-Berechnung erfolgreich:', data);
+  
+  setKosten(prev => ({
+    ...prev,
+    [typ]: {
+      status: 'calculated',
+      betrag: parseFloat(data.calculation.total),
+      partner_id: partnerId,
+      partner_name: partner.name,
+      details: data.calculation.breakdown,
+      zone: data.zone
+    }
+  }));
+  return;
+} else {
+  const errorText = await response.text();
+  console.error('❌ Tarif-API Fehler:', errorText);
+  
+  // Fallback bei API-Fehler
+  setKosten(prev => ({
+    ...prev,
+    [typ]: {
+      status: 'manual',
+      betrag: 0,
+      partner_id: partnerId,
+      partner_name: partner.name,
+      message: 'Tarif-API nicht erreichbar: ' + errorText
+    }
+  }));
+}
+}
+
 } else if (typ === 'abholung') {
   // Andere Abholpartner (nicht HuT/BAT/Böpple)
   setKosten(prev => ({
@@ -1214,8 +1297,31 @@ pickup_cost: (() => {
                     {getPartnersByType('abholung').map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
-                  </select>
-                  {/* HuT Kosten-Anzeige im gleichen Stil wie WebCargo */}
+                 </select>
+
+{/* DEBUG: Manueller Kosten-Button */}
+{partners.abholung && kosten.abholung.status === 'pending' && (
+  <button
+    onClick={() => {
+      console.log('🔧 Manueller Kosten-Abruf für Partner:', partners.abholung);
+      kostenAbrufen('abholung', partners.abholung);
+    }}
+    style={{
+      marginTop: '8px',
+      padding: '4px 8px',
+      backgroundColor: '#3b82f6',
+      color: 'white',
+      borderRadius: '4px',
+      fontSize: '0.75rem',
+      border: 'none',
+      cursor: 'pointer'
+    }}
+  >
+    🔧 Kosten manuell abrufen
+  </button>
+)}
+
+{/* HuT Kosten-Anzeige im gleichen Stil wie WebCargo */}
 {kosten.abholung.status === 'calculated' && kosten.abholung.betrag > 0 && (
   <div style={{ 
     marginTop: '12px', 

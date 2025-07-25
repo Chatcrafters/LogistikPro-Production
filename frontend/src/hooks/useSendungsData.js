@@ -406,47 +406,63 @@ Mit freundlichen Grüßen
 Ihr LogistikPro Team`;
   }, [sendungen, customers]);
 
-  // Accept/Reject Offer
-  const handleOffer = useCallback(async (shipmentId, action, reason = '') => {
-    try {
-      let newStatus;
-      let updateData = {
-        updated_at: new Date().toISOString()
-      };
-
-      if (action === 'accept') {
-        newStatus = 'created';
-        updateData.status = newStatus;
-        updateData.offer_accepted_at = new Date().toISOString();
-        updateData.converted_to_shipment_at = new Date().toISOString();
+ // Accept/Reject Offer
+const handleOffer = useCallback(async (shipmentId, action, reason = '') => {
+  try {
+    let newStatus;
+    let updateData = {
+      updated_at: new Date().toISOString()
+    };
+    
+    if (action === 'accept') {
+      // Status auf BEAUFTRAGT setzen
+      newStatus = 'BEAUFTRAGT';
+      updateData.status = newStatus;
+      updateData.offer_accepted_at = new Date().toISOString();
+      updateData.converted_to_shipment_at = new Date().toISOString();
+     
+      // Generiere Auftragsnummer
+      updateData.order_number = `AUF-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+     
+      // Hole die Sendung für die Angebotsdaten
+      const sendung = sendungen.find(s => s.id === shipmentId);
+      if (sendung) {
+        updateData.order_price = sendung.offer_price;
+        updateData.order_margin = sendung.offer_margin_percent;
+        updateData.order_profit = sendung.offer_profit;
         
         // Generate AWB if not exists
-        if (!updateData.awb_number) {
+        if (!sendung.awb_number) {
           updateData.awb_number = `020-${Math.floor(Math.random() * 99999999).toString().padStart(8, '0')}`;
         }
-      } else if (action === 'reject') {
-        newStatus = 'ABGELEHNT';
-        updateData.status = newStatus;
-        updateData.rejected_at = new Date().toISOString();
-        updateData.rejection_reason = reason;
       }
-
-      const { error } = await supabase
-        .from('shipments')
-        .update(updateData)
-        .eq('id', shipmentId);
-
-      if (error) throw error;
-
-      console.log(`📋 Angebot ${action}ed:`, shipmentId);
-      await loadSendungen();
-      
-      return { success: true, newStatus };
-    } catch (err) {
-      handleError(err, `Angebot ${action}`);
-      throw err;
+     
+      console.log('✅ Erstelle Auftrag mit Daten:', updateData);
+     
+    } else if (action === 'reject') {
+      newStatus = 'ABGELEHNT';
+      updateData.status = newStatus;
+      updateData.rejected_at = new Date().toISOString();
+      updateData.rejection_reason = reason;
     }
-  }, [loadSendungen, handleError]);
+    
+    const { error } = await supabase
+      .from('shipments')
+      .update(updateData)
+      .eq('id', shipmentId);
+      
+    if (error) throw error;
+    
+    console.log(`📋 Angebot ${action}ed:`, shipmentId);
+    await loadSendungen();
+   
+    return { success: true, newStatus };
+    
+  } catch (err) {
+    handleError(err, `Angebot ${action}`);
+    throw err;
+  }
+}, [sendungen, loadSendungen, handleError]);
 
   // Return Hook Interface
   return {

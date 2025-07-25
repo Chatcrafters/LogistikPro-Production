@@ -64,33 +64,39 @@ const SendungsBoard = ({ supabase, user, onNavigate }) => {
     }
   }, [showStatusPopup]);
 
+  // Filterfunktion für verschiedene View Modes - MUSS VOR DER VERWENDUNG DEFINIERT WERDEN
+  const getFilteredSendungen = () => {
+    switch (viewMode) {
+      case 'anfragen':
+        return sendungen.filter(s => s.status === 'ANFRAGE');
+      case 'angebote':
+        return sendungen.filter(s => s.status === 'ANGEBOT');
+      case 'sendungen':
+        return sendungen.filter(s => 
+          ['BEAUFTRAGT', 'created', 'booked', 'abgeholt', 'in_transit', 'zugestellt', 'delivered'].includes(s.status)
+        );
+      case 'alle':
+      default:
+        return sendungen;
+    }
+  };
+
   // Filter sendungen based on view mode and search
-  const filteredSendungen = sendungen.filter(sendung => {
-    // View Mode Filter
-    let viewFilter = true;
-    if (viewMode === 'sendungen') {
-      viewFilter = !['ANFRAGE', 'ANGEBOT', 'ABGELEHNT'].includes(sendung.status);
-    } else if (viewMode === 'anfragen') {
-      viewFilter = sendung.status === 'ANFRAGE';
-    } else if (viewMode === 'angebote') {
-      viewFilter = sendung.status === 'ANGEBOT';
-    }
-
+  const filteredSendungen = getFilteredSendungen().filter(sendung => {
     // Search Filter
-    let searchFilter = true;
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      const customerName = customers[sendung.customer_id]?.toLowerCase() || '';
-      searchFilter = 
-        sendung.position?.toLowerCase().includes(search) ||
-        sendung.reference?.toLowerCase().includes(search) ||
-        sendung.awb_number?.toLowerCase().includes(search) ||
-        customerName.includes(search) ||
-        sendung.origin_airport?.toLowerCase().includes(search) ||
-        sendung.destination_airport?.toLowerCase().includes(search);
-    }
-
-    return viewFilter && searchFilter;
+    if (!searchTerm) return true;
+    
+    const search = searchTerm.toLowerCase();
+    const customerName = customers[sendung.customer_id]?.toLowerCase() || '';
+    
+    return (
+      sendung.position?.toLowerCase().includes(search) ||
+      sendung.reference?.toLowerCase().includes(search) ||
+      sendung.awb_number?.toLowerCase().includes(search) ||
+      customerName.includes(search) ||
+      sendung.origin_airport?.toLowerCase().includes(search) ||
+      sendung.destination_airport?.toLowerCase().includes(search)
+    );
   });
 
   // Event Handlers
@@ -370,14 +376,15 @@ Finalen Verkaufspreis eingeben:`;
     }
   };
 
-  // View Mode Buttons Configuration
+
+// View Mode Buttons Configuration
   const viewModes = [
     { 
       key: 'sendungen', 
       label: 'Sendungen', 
       icon: Package, 
       color: '#3b82f6',
-      count: sendungen.filter(s => !['ANFRAGE', 'ANGEBOT', 'ABGELEHNT'].includes(s.status)).length
+      count: sendungen.filter(s => ['BEAUFTRAGT', 'created', 'booked', 'abgeholt', 'in_transit', 'zugestellt', 'delivered'].includes(s.status)).length
     },
     { 
       key: 'anfragen', 
