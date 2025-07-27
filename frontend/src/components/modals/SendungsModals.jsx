@@ -1,8 +1,9 @@
-// frontend/src/components/SendungsModals.jsx
+// frontend/src/components/modals/SendungsModals.jsx
 import React, { useState, useEffect } from 'react';
 import {
-  X, Check, AlertCircle, Euro, FileText, Calendar, 
-  Clock, MapPin, User, Phone, Mail, Package, Truck, Plane
+  X, Check, AlertCircle, Euro, FileText, Calendar,
+  Clock, MapPin, User, Phone, Mail, Package, Truck, Plane,
+  Edit, Save, Trash2, Plus, Minus
 } from 'lucide-react';
 import { formatDate, formatDateTime, getTrafficLightColor, formatCurrency } from '../../utils/formatters';
 

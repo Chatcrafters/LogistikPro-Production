@@ -1,8 +1,10 @@
+// MilestonePopup.jsx - REPARIERTE VERSION mit allen Imports
 import React from 'react';
-import { Check, Clock, AlertCircle, Mail, X } from 'lucide-react';
-import { getMilestones } from '../utils/milestoneDefinitions';
+import { X, Check, Clock, Mail } from 'lucide-react'; // ← FIX: Fehlende Icons importiert
+import { formatDate } from '../../utils/formatters';
+import { getMilestones } from '../../utils/milestoneDefinitions';
 
-const MilestonePopup = ({ 
+const MilestonePopup = ({
   position, 
   sendung, 
   type, 

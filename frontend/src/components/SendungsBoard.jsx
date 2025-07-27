@@ -1,4 +1,4 @@
-// Ersetze SendungsBoard.jsx mit der VOLLVERSION:
+// SendungsBoard.jsx - VOLLVERSION mit integriertem Traffic Light System
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Download, Filter, RotateCcw, Package, FileQuestion, FileText, BarChart3 } from 'lucide-react';
 
@@ -10,23 +10,74 @@ import { processMagicInput, handleSaveCosts } from '../utils/costParser';
 import { formatDate, formatDateTime, getStatusColor } from '../utils/formatters';
 
 const SendungsBoard = ({ supabase, user, onNavigate }) => {
-  // Hook für Datenmanagement
-  const {
-    sendungen,
-    customers,
-    partners,
-    loading,
-    error,
-    stats,
-    loadAllData,
-    updateStatus,
-    deleteSendung,
-    saveSendung,
-    saveCosts,
-    createOffer,
-    handleOffer,
-    clearError
-  } = useSendungsData();
+ // Hook für Datenmanagement - ERWEITERT für neue DB-Felder
+const {
+  sendungen,
+  customers,
+  partners,
+  milestones,
+  trafficLights,
+  loading,
+  error,
+  stats,
+  loadAllData,
+  updateStatus,
+  deleteSendung,          // ← NEU HINZUGEFÜGT
+  saveSendung,
+  saveCosts,
+  createOffer,
+  handleOffer,
+  clearError
+} = useSendungsData();
+
+// NEUE HELPER-FUNKTIONEN für erweiterte Daten
+const updateFlightTimes = async (shipmentId, flightData) => {
+  try {
+    const { data, error } = await supabase
+      .from('shipments')
+      .update({
+        departure_time: flightData.departure || null,
+        arrival_time: flightData.arrival || null,
+        etd: flightData.etd || null,
+        eta: flightData.eta || null,
+        cutoff_time: flightData.cutoff || null,
+        flight_number: flightData.flightNumber || null,
+        flight_confirmed: Boolean(flightData.confirmed),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', shipmentId);
+
+    if (error) throw error;
+    await loadAllData(); // Daten neu laden
+    return data;
+  } catch (error) {
+    console.error('❌ Flight times update error:', error);
+    alert('Fehler beim Aktualisieren der Flugzeiten: ' + error.message);
+  }
+};
+
+const updateNotes = async (shipmentId, notesData) => {
+  try {
+    const { data, error } = await supabase
+      .from('shipments')
+      .update({
+        notes: notesData.general || null,
+        special_instructions: notesData.instructions || null,
+        customer_notes: notesData.customer || null,
+        internal_notes: notesData.internal || null,
+        remarks: notesData.remarks || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', shipmentId);
+
+    if (error) throw error;
+    await loadAllData();
+    return data;
+  } catch (error) {
+    console.error('❌ Notes update error:', error);
+    alert('Fehler beim Aktualisieren der Notizen: ' + error.message);
+  }
+};
 
   // UI State
   const [viewMode, setViewMode] = useState('sendungen');
@@ -42,8 +93,14 @@ const SendungsBoard = ({ supabase, user, onNavigate }) => {
   const [selectedSendung, setSelectedSendung] = useState(null);
   const [tempCosts, setTempCosts] = useState({});
 
+  // Traffic Light States
+  const [showTrafficLightModal, setShowTrafficLightModal] = useState(false);
+  const [trafficLightData, setTrafficLightData] = useState(null);
+  const [trafficLightPosition, setTrafficLightPosition] = useState({ x: 0, y: 0 });
+
   // Refs
   const popupRef = useRef(null);
+  const trafficLightRef = useRef(null);
 
   // Load data on mount
   useEffect(() => {
@@ -56,13 +113,16 @@ const SendungsBoard = ({ supabase, user, onNavigate }) => {
       if (popupRef.current && !popupRef.current.contains(event.target)) {
         setShowStatusPopup(false);
       }
+      if (trafficLightRef.current && !trafficLightRef.current.contains(event.target)) {
+        setShowTrafficLightModal(false);
+      }
     };
 
-    if (showStatusPopup) {
+    if (showStatusPopup || showTrafficLightModal) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showStatusPopup]);
+  }, [showStatusPopup, showTrafficLightModal]);
 
   // Filterfunktion für verschiedene View Modes - MUSS VOR DER VERWENDUNG DEFINIERT WERDEN
   const getFilteredSendungen = () => {
@@ -99,59 +159,681 @@ const SendungsBoard = ({ supabase, user, onNavigate }) => {
     );
   });
 
-  // Event Handlers
-  const handleStatusMenuClick = (event, sendungId, type) => {
-    event.stopPropagation();
-    
-    const rect = event.target.getBoundingClientRect();
-    const sendung = sendungen.find(s => s.id === sendungId);
-    
-    if (!sendung) return;
+ // Traffic Light Click Handler - CLEAN VERSION
+  const handleTrafficLightClick = (event, sendungId, milestoneType, milestoneData) => {
+  event.stopPropagation();
+  
+  console.log('🚦 Traffic Light clicked - BOARD:', sendungId, milestoneType, milestoneData);
+  
+  const rect = event.target.getBoundingClientRect();
+  const sendung = sendungen.find(s => s.id === sendungId);
+  
+  if (!sendung) {
+    console.error('❌ Sendung nicht gefunden:', sendungId);
+    return;
+  }
 
-    setStatusPopupData({
+  console.log('🚦 Found sendung:', sendung.position, 'Traffic lights:', trafficLights[sendungId]);
+
+  // ✅ MILESTONE-DEFINITIONEN aus useSendungsData
+  const shipmentTrafficLights = trafficLights[sendungId];
+  if (!shipmentTrafficLights) {
+    console.error('❌ No traffic light data for sendung:', sendungId);
+    return;
+  }
+
+  const { definitions, transportType, importExport } = shipmentTrafficLights;
+  const allMilestones = definitions || [];
+  const typeMilestones = allMilestones.filter(m => m.ampel === milestoneType);
+  
+  console.log('🚦 Milestones for', milestoneType, ':', typeMilestones);
+  
+  // ✅ COMPLETED IDS aus completed_milestones Array
+  const completedIds = sendung.completed_milestones || [];
+  
+  console.log('🚦 Completed IDs:', completedIds);
+
+  setTrafficLightData({
+    sendungId,
+    sendung,
+    milestoneType,
+    currentStatus: shipmentTrafficLights[milestoneType] || 'grey',
+    milestones: typeMilestones,
+    completedIds: completedIds
+  });
+  
+  setTrafficLightPosition({
+    x: rect.left,
+    y: rect.bottom + 5
+  });
+  
+  setShowTrafficLightModal(true);
+  
+  console.log('🚦 Modal should open with', typeMilestones.length, 'milestones');
+};
+
+// ==// ============== TRAFFIC LIGHT STATUS SYSTEM ==============
+
+// 🚦 HELPER FUNCTION: Status-Text für Ampel berechnen
+// 📁 SendungsBoard.jsx - Event Handlers Collection
+// ✅ Komplett neu geschrieben für bessere Performance und Fehlerbehandlung
+
+// ====================================================================
+// 🚦 TRAFFIC LIGHT STATUS TEXT GENERATOR
+// ====================================================================
+
+/**
+ * Generiert Status-Text für Traffic Light Anzeige unter den Ampeln
+ * @param {Object} sendung - Sendungsobjekt
+ * @param {string} ampelType - 'abholung', 'carrier', 'zustellung'
+ * @param {Object} trafficLightData - Milestone-Definitionen
+ * @returns {string} - Formatierter Status-Text
+ */
+const getTrafficLightStatusText = (sendung, ampelType, trafficLightData) => {
+  console.log(`📊 Generating status text for ${sendung?.position} ${ampelType}`);
+  
+  // Validierung der Input-Parameter
+  if (!sendung) {
+    console.warn('⚠️ Keine Sendung für Status-Text');
+    return 'Keine Daten';
+  }
+  
+  if (!trafficLightData?.definitions) {
+    console.warn('⚠️ Keine Traffic Light Definitionen verfügbar');
+    return 'Definitionen fehlen';
+  }
+
+  const { definitions } = trafficLightData;
+  const completedIds = sendung.completed_milestones || [];
+  
+  console.log(`📊 Completed Milestone IDs für ${sendung.position}:`, completedIds);
+  
+  // Alle Milestones für diese spezifische Ampel filtern
+  const ampelMilestones = definitions.filter(milestone => milestone.ampel === ampelType);
+  
+  if (ampelMilestones.length === 0) {
+    console.warn(`⚠️ Keine Milestones für Ampel-Typ: ${ampelType}`);
+    return `${ampelType} - Nicht konfiguriert`;
+  }
+
+  // Abgeschlossene Milestones für diese Ampel ermitteln
+  const completedAmpelMilestones = ampelMilestones.filter(milestone => 
+    completedIds.includes(milestone.id)
+  );
+  
+  const completedCount = completedAmpelMilestones.length;
+  const totalCount = ampelMilestones.length;
+  
+  console.log(`📊 Milestone Count für ${ampelType}: ${completedCount}/${totalCount}`);
+  
+  // Letzten abgeschlossenen Milestone finden (höchste ID oder Reihenfolge)
+  let lastCompletedMilestone = null;
+  
+  // Rückwärts durch die Milestones gehen um den letzten abgeschlossenen zu finden
+  for (let i = ampelMilestones.length - 1; i >= 0; i--) {
+    const milestone = ampelMilestones[i];
+    if (completedIds.includes(milestone.id)) {
+      lastCompletedMilestone = milestone;
+      break;
+    }
+  }
+  
+  // Status-Text basierend auf Fortschritt generieren
+  if (completedCount === 0) {
+    return `0/${totalCount} - Nicht begonnen`;
+  } 
+  
+  if (completedCount === totalCount) {
+    return `${completedCount}/${totalCount} - Abgeschlossen`;
+  }
+  
+  if (lastCompletedMilestone) {
+    const shortText = lastCompletedMilestone.text?.substring(0, 30) || 'Milestone';
+    return `${completedCount}/${totalCount} - ${shortText}`;
+  }
+  
+  return `${completedCount}/${totalCount} - In Bearbeitung`;
+};
+
+// ====================================================================
+// 🚦 MILESTONE TOGGLE HANDLER (Optimiert)
+// ====================================================================
+
+/**
+ * Behandelt das Umschalten von Milestone-Status im Modal
+ * @param {number} sendungId - ID der Sendung
+ * @param {number} milestoneId - ID des Milestones
+ * @param {boolean} isCompleted - Neuer Completed-Status
+ * @param {Array} newCompletedIds - Aktualisierte Liste aller completed IDs
+ */
+const handleMilestoneToggle = async (sendungId, milestoneId, isCompleted, newCompletedIds) => {
+  console.log('🚦 === MILESTONE TOGGLE START ===');
+  console.log('🚦 Parameters:', { sendungId, milestoneId, isCompleted, newCompletedIds });
+  
+  try {
+    // Eingabe-Validierung
+    if (!sendungId || !milestoneId) {
+      throw new Error('Ungültige Parameter: sendungId oder milestoneId fehlt');
+    }
+    
+    if (!Array.isArray(newCompletedIds)) {
+      throw new Error('newCompletedIds muss ein Array sein');
+    }
+    
+    // Optimistische UI-Update (sofortige Anzeige)
+    if (setTrafficLightData && typeof setTrafficLightData === 'function') {
+      setTrafficLightData(prev => ({
+        ...prev,
+        completedIds: newCompletedIds
+      }));
+      console.log('🚦 ✅ Optimistic UI update completed');
+    }
+    
+    // Datenbank-Update (nur existierende Felder)
+    const updateData = {
+      completed_milestones: newCompletedIds,
+      updated_at: new Date().toISOString()
+    };
+    
+    console.log('🚦 Updating database with data:', updateData);
+    
+    const { error } = await supabase
+      .from('shipments')
+      .update(updateData)
+      .eq('id', sendungId);
+
+    if (error) {
+      console.error('🚦 ❌ Database update error:', error);
+      throw new Error(`Datenbank-Fehler: ${error.message}`);
+    }
+
+    console.log('🚦 ✅ Database update successful');
+
+    // Vollständige Daten-Neuladen für Konsistenz
+    if (loadAllData && typeof loadAllData === 'function') {
+      await loadAllData();
+      console.log('🚦 ✅ Data reload completed');
+    } else {
+      console.warn('🚦 ⚠️ loadAllData function not available');
+    }
+    
+    // Erfolgs-Feedback
+    console.log('🚦 ✅ Milestone toggle completed successfully');
+    
+    // Optional: Toast-Notification
+    if (window.showToast) {
+      window.showToast('Milestone erfolgreich aktualisiert', 'success');
+    }
+
+  } catch (error) {
+    console.error('🚦 ❌ Milestone toggle failed:', error);
+    
+    // Rollback der optimistischen UI-Updates
+    if (setTrafficLightData && typeof setTrafficLightData === 'function') {
+      setTrafficLightData(prev => ({
+        ...prev,
+        completedIds: prev.originalCompletedIds || []
+      }));
+    }
+    
+    // User-freundliche Fehlermeldung
+    const userMessage = error.message.includes('Database') 
+      ? 'Fehler beim Speichern in der Datenbank. Bitte versuchen Sie es erneut.'
+      : `Fehler beim Milestone-Update: ${error.message}`;
+    
+    alert(`❌ ${userMessage}`);
+    
+    // Error-Tracking für Debugging
+    if (window.logError) {
+      window.logError('milestone_toggle_failed', {
+        sendungId,
+        milestoneId,
+        isCompleted,
+        error: error.message
+      });
+    }
+  }
+  
+  console.log('🚦 === MILESTONE TOGGLE END ===');
+};
+
+// ====================================================================
+// 🚦 TRAFFIC LIGHT UPDATE HANDLER (Erweitert)
+// ====================================================================
+
+/**
+ * Behandelt manuelle Traffic Light Status-Updates
+ * @param {number} sendungId - ID der Sendung
+ * @param {string} milestoneType - 'abholung', 'carrier', 'zustellung'
+ * @param {string} newStatus - 'green', 'yellow', 'red', 'grey'
+ */
+const handleTrafficLightUpdate = async (sendungId, milestoneType, newStatus) => {
+  console.log('🚦 === TRAFFIC LIGHT UPDATE START ===');
+  console.log('🚦 Parameters:', { sendungId, milestoneType, newStatus });
+  
+  try {
+    // Eingabe-Validierung
+    if (!sendungId || !milestoneType || !newStatus) {
+      throw new Error('Alle Parameter sind erforderlich');
+    }
+    
+    const validStatuses = ['green', 'yellow', 'red', 'grey'];
+    if (!validStatuses.includes(newStatus)) {
+      throw new Error(`Ungültiger Status: ${newStatus}. Erlaubt: ${validStatuses.join(', ')}`);
+    }
+    
+    const validTypes = ['abholung', 'carrier', 'zustellung'];
+    if (!validTypes.includes(milestoneType)) {
+      throw new Error(`Ungültiger Milestone-Typ: ${milestoneType}. Erlaubt: ${validTypes.join(', ')}`);
+    }
+    
+    // Datenbank-Update (nur existierende Felder)
+    const updateData = {
+      [`${milestoneType}_status`]: newStatus,
+      updated_at: new Date().toISOString()
+    };
+    
+    console.log('🚦 Updating traffic light in database:', updateData);
+
+    const { error } = await supabase
+      .from('shipments')
+      .update(updateData)
+      .eq('id', sendungId);
+
+    if (error) {
+      console.error('🚦 ❌ Traffic light database error:', error);
+      throw new Error(`Datenbank-Fehler: ${error.message}`);
+    }
+
+    console.log('🚦 ✅ Traffic light update successful');
+    
+    // Daten neu laden
+    if (loadAllData && typeof loadAllData === 'function') {
+      await loadAllData();
+      console.log('🚦 ✅ Data refreshed after traffic light update');
+    }
+    
+    // Modal schließen
+    if (setShowTrafficLightModal && typeof setShowTrafficLightModal === 'function') {
+      setShowTrafficLightModal(false);
+      console.log('🚦 ✅ Traffic light modal closed');
+    }
+    
+    // Erfolgs-Feedback
+    if (window.showToast) {
+      window.showToast(`Traffic Light für ${milestoneType} auf ${newStatus} gesetzt`, 'success');
+    }
+
+  } catch (error) {
+    console.error('🚦 ❌ Traffic light update failed:', error);
+    
+    // User-freundliche Fehlermeldung
+    const userMessage = error.message.includes('Database')
+      ? 'Fehler beim Speichern des Traffic Light Status. Bitte versuchen Sie es erneut.'
+      : error.message;
+    
+    alert(`❌ ${userMessage}`);
+    
+    // Error-Tracking
+    if (window.logError) {
+      window.logError('traffic_light_update_failed', {
+        sendungId,
+        milestoneType,
+        newStatus,
+        error: error.message
+      });
+    }
+  }
+  
+  console.log('🚦 === TRAFFIC LIGHT UPDATE END ===');
+};
+
+// ====================================================================
+// 📋 STATUS MENU CLICK HANDLER (Überarbeitet)
+// ====================================================================
+
+/**
+ * Öffnet das Status-Update Popup an der korrekten Position
+ * @param {Event} event - Click Event für Position
+ * @param {number} sendungId - ID der Sendung
+ * @param {string} type - Status-Typ
+ */
+const handleStatusMenuClick = (event, sendungId, type) => {
+  console.log('📋 === STATUS MENU CLICK ===');
+  console.log('📋 Parameters:', { sendungId, type });
+  
+  try {
+    // Event-Propagation stoppen
+    event.stopPropagation();
+    event.preventDefault();
+    
+    // Validierung
+    if (!sendungId || !type) {
+      throw new Error('SendungId und Type sind erforderlich');
+    }
+    
+    // Sendung finden
+    const sendung = sendungen?.find(s => s.id === sendungId);
+    if (!sendung) {
+      throw new Error(`Sendung mit ID ${sendungId} nicht gefunden`);
+    }
+    
+    // Position des Click-Events ermitteln
+    const rect = event.target.getBoundingClientRect();
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    
+    const position = {
+      x: rect.left + scrollLeft,
+      y: rect.bottom + scrollTop + 5 // 5px Abstand unter dem Element
+    };
+    
+    // Bildschirm-Grenzen prüfen und Position anpassen
+    const popupWidth = 200; // Geschätzte Popup-Breite
+    const popupHeight = 150; // Geschätzte Popup-Höhe
+    
+    if (position.x + popupWidth > window.innerWidth) {
+      position.x = window.innerWidth - popupWidth - 10;
+    }
+    
+    if (position.y + popupHeight > window.innerHeight + scrollTop) {
+      position.y = rect.top + scrollTop - popupHeight - 5; // Oberhalb des Elements
+    }
+    
+    console.log('📋 Popup position calculated:', position);
+    
+    // Aktueller Status ermitteln
+    const currentStatus = sendung[`${type}_status`] || 'grey';
+    
+    // Status-Popup-Daten setzen
+    const popupData = {
       sendungId,
       sendung,
       type,
-      currentStatus: 'grey' // Default
-    });
+      currentStatus,
+      availableStatuses: ['green', 'yellow', 'red', 'grey'],
+      timestamp: new Date().toISOString()
+    };
     
-    setPopupPosition({
-      x: rect.left,
-      y: rect.bottom + 5
-    });
-    
-    setShowStatusPopup(true);
-  };
-
-  const handleStatusUpdate = async (sendungId, type, newStatus) => {
-    try {
-      await updateStatus(sendungId, type, newStatus);
-      console.log(`✅ Status updated: ${sendungId} ${type} → ${newStatus}`);
-    } catch (error) {
-      console.error('Status update failed:', error);
-      alert('Fehler beim Status-Update: ' + error.message);
+    // State Updates
+    if (setStatusPopupData && typeof setStatusPopupData === 'function') {
+      setStatusPopupData(popupData);
+      console.log('📋 ✅ Status popup data set');
     }
-  };
-
-  const handleEditClick = (sendung) => {
-    setSelectedSendung(sendung);
-  };
-
-  const handleDeleteClick = async (sendungId) => {
-    const sendung = sendungen.find(s => s.id === sendungId);
-    if (!sendung) return;
-
-    const confirmText = `Sendung "${sendung.position || sendung.id}" wirklich löschen?`;
     
-    if (confirm(confirmText)) {
-      try {
-        await deleteSendung(sendungId);
-        alert('✅ Sendung erfolgreich gelöscht');
-      } catch (error) {
-        alert('❌ Fehler beim Löschen: ' + error.message);
+    if (setPopupPosition && typeof setPopupPosition === 'function') {
+      setPopupPosition(position);
+      console.log('📋 ✅ Popup position set');
+    }
+    
+    if (setShowStatusPopup && typeof setShowStatusPopup === 'function') {
+      setShowStatusPopup(true);
+      console.log('📋 ✅ Status popup opened');
+    }
+
+  } catch (error) {
+    console.error('📋 ❌ Status menu click failed:', error);
+    alert(`❌ Fehler beim Öffnen des Status-Menüs: ${error.message}`);
+  }
+  
+  console.log('📋 === STATUS MENU CLICK END ===');
+};
+
+// ====================================================================
+// 📋 STATUS UPDATE HANDLER (Verbessert)
+// ====================================================================
+
+/**
+ * Führt Status-Update für eine Sendung durch
+ * @param {number} sendungId - ID der Sendung
+ * @param {string} type - Status-Typ
+ * @param {string} newStatus - Neuer Status-Wert
+ */
+const handleStatusUpdate = async (sendungId, type, newStatus) => {
+  console.log('📋 === STATUS UPDATE START ===');
+  console.log('📋 Parameters:', { sendungId, type, newStatus });
+  
+  try {
+    // Validierung
+    if (!sendungId || !type || !newStatus) {
+      throw new Error('Alle Parameter sind erforderlich');
+    }
+    
+    // Status-Update über Custom Hook
+    if (updateStatus && typeof updateStatus === 'function') {
+      await updateStatus(sendungId, type, newStatus);
+      console.log('📋 ✅ Status update via hook successful');
+    } else {
+      // Fallback: Direkter Datenbank-Update
+      console.log('📋 Using fallback database update');
+      
+      const updateData = {
+        [`${type}_status`]: newStatus,
+        updated_at: new Date().toISOString()
+      };
+      
+      const { error } = await supabase
+        .from('shipments')
+        .update(updateData)
+        .eq('id', sendungId);
+      
+      if (error) {
+        throw new Error(`Datenbank-Fehler: ${error.message}`);
+      }
+      
+      // Daten neu laden
+      if (loadAllData && typeof loadAllData === 'function') {
+        await loadAllData();
       }
     }
-  };
+    
+    console.log('📋 ✅ Status update completed successfully');
+    
+    // Popup schließen
+    if (setShowStatusPopup && typeof setShowStatusPopup === 'function') {
+      setShowStatusPopup(false);
+      console.log('📋 ✅ Status popup closed');
+    }
+    
+    // Erfolgs-Feedback
+    if (window.showToast) {
+      window.showToast(`Status ${type} auf ${newStatus} aktualisiert`, 'success');
+    }
+    
+  } catch (error) {
+    console.error('📋 ❌ Status update failed:', error);
+    
+    const userMessage = error.message.includes('Database')
+      ? 'Fehler beim Speichern des Status. Bitte versuchen Sie es erneut.'
+      : error.message;
+    
+    alert(`❌ Fehler beim Status-Update: ${userMessage}`);
+    
+    // Error-Tracking
+    if (window.logError) {
+      window.logError('status_update_failed', {
+        sendungId,
+        type,
+        newStatus,
+        error: error.message
+      });
+    }
+  }
+  
+  console.log('📋 === STATUS UPDATE END ===');
+};
+
+// ====================================================================
+// ✏️ EDIT CLICK HANDLER (Robuster)
+// ====================================================================
+
+/**
+ * Behandelt das Öffnen einer Sendung zum Bearbeiten
+ * @param {Object} sendung - Sendungsobjekt
+ */
+const handleEditClick = (sendung) => {
+  console.log('✏️ === EDIT CLICK START ===');
+  console.log('✏️ Sendung:', sendung?.position || sendung?.id);
+  
+  try {
+    // Eingabe-Validierung
+    if (!sendung) {
+      throw new Error('Keine Sendung übergeben');
+    }
+    
+    if (!sendung.id) {
+      throw new Error('Sendung hat keine gültige ID');
+    }
+    
+    // Sendung für Bearbeitung setzen
+    if (setSelectedSendung && typeof setSelectedSendung === 'function') {
+      setSelectedSendung(sendung);
+      console.log('✏️ ✅ Sendung für Bearbeitung ausgewählt:', sendung.position);
+    } else {
+      throw new Error('setSelectedSendung Funktion nicht verfügbar');
+    }
+    
+    // Edit-Modal öffnen (falls verfügbar)
+    if (typeof setShowEditModal === 'function') {
+      setShowEditModal(true);
+      console.log('✏️ ✅ Edit-Modal geöffnet');
+    } else {
+      console.log('✏️ ℹ️ setShowEditModal nicht verfügbar - Sendung nur selected');
+    }
+    
+    // Analytics-Tracking
+    if (window.trackEvent) {
+      window.trackEvent('sendung_edit_opened', {
+        sendungId: sendung.id,
+        position: sendung.position,
+        status: sendung.status
+      });
+    }
+    
+  } catch (error) {
+    console.error('✏️ ❌ Edit click failed:', error);
+    alert(`❌ Fehler beim Öffnen der Sendung: ${error.message}`);
+    
+    // Error-Tracking
+    if (window.logError) {
+      window.logError('edit_click_failed', {
+        sendung: sendung?.id || 'unknown',
+        error: error.message
+      });
+    }
+  }
+  
+  console.log('✏️ === EDIT CLICK END ===');
+};
+
+// ====================================================================
+// 🗑️ DELETE CLICK HANDLER (Sicherheitsoptimiert)
+// ====================================================================
+
+/**
+ * Behandelt das Löschen einer Sendung mit Sicherheitsabfragen
+ * @param {Object} sendung - Sendungsobjekt
+ */
+const handleDeleteClick = (sendung) => {
+  console.log('🗑️ === DELETE CLICK START ===');
+  console.log('🗑️ Sendung:', sendung?.position || sendung?.id);
+  
+  try {
+    // Eingabe-Validierung
+    if (!sendung || !sendung.id) {
+      throw new Error('Ungültige Sendung: Keine ID vorhanden');
+    }
+    
+    // Sicherheitsprüfungen
+    const isProductionSendung = sendung.status !== 'ANFRAGE' && sendung.status !== 'draft';
+    const hasAwb = sendung.awb_number && sendung.awb_number.length > 0;
+    const hasDeliveryDate = sendung.delivery_date && sendung.delivery_date.length > 0;
+    
+    // Erweiterte Bestätigungsnachrichten
+    let confirmMessage = `Sendung ${sendung.position} wirklich löschen?\n\n`;
+    
+    if (isProductionSendung) {
+      confirmMessage += '⚠️ WARNUNG: Dies ist eine aktive Sendung!\n';
+    }
+    
+    if (hasAwb) {
+      confirmMessage += '⚠️ WARNUNG: Sendung hat bereits eine AWB-Nummer!\n';
+    }
+    
+    if (hasDeliveryDate) {
+      confirmMessage += '⚠️ WARNUNG: Sendung wurde bereits zugestellt!\n';
+    }
+    
+    confirmMessage += '\nDiese Aktion kann NICHT rückgängig gemacht werden!\n\n';
+    confirmMessage += 'Zum Bestätigen tippen Sie "LÖSCHEN":';
+    
+    // Doppelte Bestätigung für kritische Sendungen
+    if (isProductionSendung || hasAwb || hasDeliveryDate) {
+      const userInput = prompt(confirmMessage);
+      
+      if (userInput !== 'LÖSCHEN') {
+        console.log('🗑️ ⏹️ Delete cancelled - incorrect confirmation');
+        alert('Löschvorgang abgebrochen. Bestätigung war nicht korrekt.');
+        return;
+      }
+    } else {
+      // Einfache Bestätigung für Anfragen/Drafts
+      if (!window.confirm(confirmMessage)) {
+        console.log('🗑️ ⏹️ Delete cancelled by user');
+        return;
+      }
+    }
+    
+    console.log('🗑️ ✅ Delete confirmed for:', sendung.id, sendung.position);
+    
+    // Löschfunktion ausführen
+    if (deleteSendung && typeof deleteSendung === 'function') {
+      deleteSendung(sendung.id)
+        .then(() => {
+          console.log('🗑️ ✅ Delete successful');
+          
+          // Erfolgs-Feedback
+          alert(`✅ Sendung ${sendung.position} erfolgreich gelöscht`);
+          
+          // Analytics-Tracking
+          if (window.trackEvent) {
+            window.trackEvent('sendung_deleted', {
+              sendungId: sendung.id,
+              position: sendung.position,
+              status: sendung.status,
+              wasProduction: isProductionSendung
+            });
+          }
+        })
+        .catch((error) => {
+          console.error('🗑️ ❌ Delete failed:', error);
+          
+          const userMessage = error.message.includes('constraint')
+            ? 'Sendung kann nicht gelöscht werden da sie mit anderen Daten verknüpft ist.'
+            : `Fehler beim Löschen: ${error.message}`;
+          
+          alert(`❌ ${userMessage}`);
+          
+          // Error-Tracking
+          if (window.logError) {
+            window.logError('delete_failed', {
+              sendungId: sendung.id,
+              error: error.message
+            });
+          }
+        });
+    } else {
+      throw new Error('Löschfunktion nicht verfügbar. Bitte Seite neu laden.');
+    }
+    
+  } catch (error) {
+    console.error('🗑️ ❌ Delete click failed:', error);
+    alert(`❌ Fehler beim Löschen: ${error.message}`);
+  }
+  
+  console.log('🗑️ === DELETE CLICK END ===');
+};
+
 
   const handleCostInputClick = (anfrage) => {
     setSelectedAnfrage(anfrage);
@@ -567,23 +1249,154 @@ Finalen Verkaufspreis eingeben:`;
         color: '#0284c7'
       }}>
         <strong>🔧 Status:</strong> {filteredSendungen.length} {viewMode}, 
-        Module: ✅ useSendungsData, ✅ SendungsTable, ✅ costParser, ❓ SendungsModals
+        Module: ✅ useSendungsData, ✅ SendungsTable, ✅ costParser, ❓ SendungsModals, 🚦 Traffic Light System
       </div>
 
       {/* SendungsTable Component */}
       <SendungsTable
-        sendungen={filteredSendungen}
-        customers={customers}
-        partners={partners}
-        viewMode={viewMode}
-        searchTerm={searchTerm}
-        onEditClick={handleEditClick}
-        onDeleteClick={handleDeleteClick}
-        onCreateOffer={handleCreateOffer}
-        onAcceptOffer={handleAcceptOffer}
-        onRejectOffer={handleRejectOffer}
-        onCostInputClick={handleCostInputClick}
-      />
+  sendungen={filteredSendungen}
+  customers={customers}
+  partners={partners}
+  milestones={milestones}         // ← SICHERSTELLEN DASS DA IST
+  trafficLights={trafficLights}   // ← SICHERSTELLEN DASS DA IST
+  viewMode={viewMode}
+  searchTerm={searchTerm}
+  onEditClick={handleEditClick}
+  onDeleteClick={handleDeleteClick}  // ← SICHERSTELLEN DASS ÜBERGEBEN
+  onCreateOffer={handleCreateOffer}
+  onAcceptOffer={handleAcceptOffer}
+  onRejectOffer={handleRejectOffer}
+  onCostInputClick={handleCostInputClick}
+  onStatusMenuClick={handleTrafficLightClick}
+/>
+
+      {/* MILESTONE MODAL - Mit echten Milestones */}
+      {showTrafficLightModal && trafficLightData && (
+        <div 
+          ref={trafficLightRef}
+          style={{
+            position: 'fixed',
+            top: `${trafficLightPosition.y}px`,
+            left: `${trafficLightPosition.x}px`,
+            backgroundColor: 'white',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            padding: '16px',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+            zIndex: 1000,
+            minWidth: '300px',
+            maxWidth: '400px'
+          }}
+        >
+          <div style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600' }}>
+            🚦 {trafficLightData.milestoneType === 'abholung' ? 'Abholung' :
+                 trafficLightData.milestoneType === 'carrier' ? 'Carrier/Transport' : 'Zustellung'} - Milestones
+          </div>
+          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#6b7280' }}>
+            {trafficLightData.sendung.position} | {trafficLightData.sendung.transport_type || 'AIR'} {trafficLightData.sendung.import_export || 'EXPORT'}
+          </div>
+          
+          {/* MILESTONE-LISTE */}
+          <div style={{ marginBottom: '16px', maxHeight: '200px', overflowY: 'auto' }}>
+            {trafficLightData.milestones && trafficLightData.milestones.length > 0 ? trafficLightData.milestones.map(milestone => {
+              const isCompleted = trafficLightData.completedIds.includes(milestone.id);
+              return (
+                <div
+                  key={milestone.id}
+                  onClick={() => {
+                    // Toggle Milestone-Status
+                    const newCompletedIds = isCompleted 
+                      ? trafficLightData.completedIds.filter(id => id !== milestone.id)
+                      : [...trafficLightData.completedIds, milestone.id];
+                    
+                    handleMilestoneToggle(
+                      trafficLightData.sendungId,
+                      milestone.id,
+                      !isCompleted,
+                      newCompletedIds
+                    );
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    margin: '4px 0',
+                    backgroundColor: isCompleted ? '#dcfce7' : '#f8fafc',
+                    border: `1px solid ${isCompleted ? '#bbf7d0' : '#e5e7eb'}`,
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseOver={(e) => {
+                    e.target.style.backgroundColor = isCompleted ? '#bbf7d0' : '#f0f9ff';
+                  }}
+                  onMouseOut={(e) => {
+                    e.target.style.backgroundColor = isCompleted ? '#dcfce7' : '#f8fafc';
+                  }}
+                >
+                  <span style={{ 
+                    fontSize: '16px',
+                    minWidth: '20px' 
+                  }}>
+                    {isCompleted ? '✅' : '⏳'}
+                  </span>
+                  <span style={{ 
+                    color: isCompleted ? '#166534' : '#374151',
+                    fontWeight: isCompleted ? '600' : '400'
+                  }}>
+                    {milestone.text}
+                  </span>
+                </div>
+              );
+            }) : (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+                Keine Milestones verfügbar
+              </div>
+            )}
+          </div>
+          
+          {/* STATUS-ÜBERSICHT */}
+          <div style={{
+            padding: '12px',
+            backgroundColor: '#f0f9ff',
+            borderRadius: '8px',
+            marginBottom: '12px'
+          }}>
+            <div style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>
+              Status: {trafficLightData.currentStatus === 'green' ? '✅ Abgeschlossen' :
+                      trafficLightData.currentStatus === 'yellow' ? '🟡 In Bearbeitung' :
+                      trafficLightData.currentStatus === 'red' ? '🔴 Problem' : '⚫ Nicht begonnen'}
+            </div>
+            <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+              {trafficLightData.milestones ? 
+                `${trafficLightData.completedIds.length}/${trafficLightData.milestones.length} Milestones erledigt` : 
+                'Keine Milestones verfügbar'
+              }
+            </div>
+          </div>
+          
+          {/* SCHLIESSEN BUTTON */}
+          <div style={{ textAlign: 'center' }}>
+            <button
+              onClick={() => setShowTrafficLightModal(false)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: '600'
+              }}
+            >
+              ✅ Fertig
+            </button>
+          </div>
+        </div>
+      )}
 
      {/* Verbessertes Kosten-Input Modal mit 3 Feldern */}
 {showCostInput && selectedAnfrage && (

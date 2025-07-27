@@ -1,495 +1,637 @@
-// frontend/src/hooks/useSendungsData.js
-import { useState, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase Client Setup
-// Supabase Client Setup - Vite nutzt import.meta.env
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://vjehwwmhtzqilvwtppcc.supabase.co';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqZWh3d21odHpxaWx2d3RwcGNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MDYwMDIsImV4cCI6MjA2NzQ4MjAwMn0.wkFyJHFi2mAb_FRsbjrrBTqX75vqV_4nsfWQLWm8QjI';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// hooks/useSendungsData.js - KOMPLETT MIT MILESTONE-INTEGRATION
+import { useState, useEffect, useCallback } from 'react';
+import supabase from '../supabaseClient';
+import { getMilestones, calculateTrafficLightStatus, getTransportKey } from '../utils/milestoneDefinitions';
 
 export const useSendungsData = () => {
-  // State Management
+  // ============== STATE MANAGEMENT ==============
   const [sendungen, setSendungen] = useState([]);
-  const [customers, setCustomers] = useState({});
-  const [partners, setPartners] = useState({});
+  const [customers, setCustomers] = useState([]);
+  const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [stats, setStats] = useState({
-    active: 0,
-    pickupToday: 0,
-    inTransit: 0,
-    critical: 0
-  });
 
-  // Error Handler
-  const handleError = useCallback((error, context) => {
-    console.error(`Fehler in ${context}:`, error);
-    setError(`${context}: ${error.message}`);
-    setLoading(false);
-  }, []);
+  // ============== MILESTONE STATE ==============
+  const [milestones, setMilestones] = useState({});
+  const [trafficLights, setTrafficLights] = useState({});
 
-  // Load All Data
+  // ============== COMPUTED STATS ==============
+  const stats = {
+    total: sendungen.length,
+    anfragen: sendungen.filter(s => s.status === 'ANFRAGE').length,
+    angebote: sendungen.filter(s => s.status === 'ANGEBOT').length,
+    sendungen: sendungen.filter(s => s.status !== 'ANFRAGE' && s.status !== 'ANGEBOT').length
+  };
+
+  // ============== LOAD ALL DATA ==============
   const loadAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      await Promise.all([
-        loadSendungen(),
-        loadCustomers(),
-        loadPartners()
+      console.log('🔄 Loading all data...');
+
+      // Parallel laden für bessere Performance - ERWEITERT mit neuer View
+      const [
+        sendungenResult,
+        customersResult,
+        partnersResult,
+        milestonesResult
+      ] = await Promise.all([
+        // NEUE Dashboard-View nutzen für erweiterte Felder
+        supabase.from('shipments_dashboard').select(`
+          *,
+          relevant_date,
+          date_type,
+          all_notes,
+          customer_name,
+          departure_time,
+          arrival_time,
+          etd,
+          eta,
+          cutoff_time,
+          flight_number,
+          pickup_confirmed,
+          flight_confirmed,
+          delivery_confirmed,
+          awb_number,
+          tracking_number,
+          notes,
+          special_instructions,
+          customer_notes,
+          internal_notes
+        `).order('created_at', { ascending: false }),
+        supabase.from('customers').select('*'),
+        supabase.from('partners').select('*'),
+        supabase.from('milestones').select('*')
       ]);
-    } catch (err) {
-      handleError(err, 'Daten laden');
+
+      // Error Handling für jeden Request
+      if (sendungenResult.error) throw new Error(`Sendungen: ${sendungenResult.error.message}`);
+      if (customersResult.error) throw new Error(`Kunden: ${customersResult.error.message}`);
+      if (partnersResult.error) throw new Error(`Partner: ${partnersResult.error.message}`);
+      if (milestonesResult.error) throw new Error(`Milestones: ${milestonesResult.error.message}`);
+
+      // Data Setting
+      setSendungen(sendungenResult.data || []);
+      setCustomers(customersResult.data || []);
+      setPartners(partnersResult.data || []);
+
+      // ============== MILESTONE PROCESSING ==============
+      const milestonesData = milestonesResult.data || [];
+      console.log('📊 Loaded milestones:', milestonesData.length);
+
+      // Group milestones by shipment_id
+      const milestonesByShipment = {};
+      milestonesData.forEach(milestone => {
+        const shipmentId = milestone.shipment_id;
+        if (!milestonesByShipment[shipmentId]) {
+          milestonesByShipment[shipmentId] = [];
+        }
+        milestonesByShipment[shipmentId].push(milestone);
+      });
+      setMilestones(milestonesByShipment);
+
+      // ============== TRAFFIC LIGHTS CALCULATION ==============
+      const trafficLightData = {};
+      sendungenResult.data.forEach(sendung => {
+        try {
+          const shipmentMilestones = milestonesByShipment[sendung.id] || [];
+          
+          // Transport type detection mit Fallback
+          let transportType = 'AIR'; // Default
+          if (sendung.transport_type) {
+            transportType = sendung.transport_type.toUpperCase();
+          } else if (sendung.transportArt) {
+            const typeMapping = {
+              'luftfracht': 'AIR',
+              'seefracht': 'SEA', 
+              'lkw': 'TRUCK'
+            };
+            transportType = typeMapping[sendung.transportArt.toLowerCase()] || 'AIR';
+          }
+
+          // Import/Export detection mit Fallback
+          let importExport = 'EXPORT'; // Default
+          if (sendung.import_export) {
+            importExport = sendung.import_export.toUpperCase();
+          } else if (sendung.transportrichtung) {
+            importExport = sendung.transportrichtung.toUpperCase();
+          }
+
+          console.log(`🚦 Traffic Light für Sendung ${sendung.position}: ${transportType}/${importExport}`);
+
+          // Milestone definitions abrufen
+          const key = getTransportKey(transportType, importExport);
+          const definitions = getMilestones(transportType, importExport);
+          
+          // Traffic lights berechnen (alle Milestones für diese Sendung)
+          const completedMilestoneIds = shipmentMilestones.map(m => m.milestone_id || m.id);
+          const lights = calculateTrafficLightStatus(definitions, completedMilestoneIds);
+          
+          trafficLightData[sendung.id] = {
+            abholung: lights.abholung,
+            carrier: lights.carrier, 
+            zustellung: lights.zustellung,
+            transportType,
+            importExport,
+            definitions
+          };
+
+          console.log(`🚦 Traffic Lights für ${sendung.position}:`, lights);
+
+        } catch (error) {
+          console.error(`🚦 Traffic Light Error für Sendung ${sendung.id}:`, error);
+          // Fallback: Alle grau
+          trafficLightData[sendung.id] = {
+            abholung: 'grey',
+            carrier: 'grey',
+            zustellung: 'grey',
+            transportType: 'AIR',
+            importExport: 'EXPORT',
+            definitions: getMilestones('AIR', 'EXPORT')
+          };
+        }
+      });
+
+      setTrafficLights(trafficLightData);
+      console.log('✅ All data loaded successfully');
+
+    } catch (error) {
+      console.error('❌ Load data error:', error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Load Sendungen from API
-  const loadSendungen = useCallback(async () => {
+  // ============== TRAFFIC LIGHT UPDATE ==============
+  const updateTrafficLight = useCallback(async (shipmentId, lightType, currentColor) => {
     try {
-      // Option 1: Direkt über Supabase (wie bisher)
-      const { data, error } = await supabase
-        .from('shipments')
-        .select('*')
-        .order('created_at', { ascending: false });
+      console.log(`🚦 Traffic Light Update: ${shipmentId}, ${lightType}, ${currentColor}`);
 
-      if (error) throw error;
-
-      console.log('📦 Sendungen geladen:', data?.length);
-      setSendungen(data || []);
-      calculateStats(data || []);
-
-      return data;
-    } catch (err) {
-      handleError(err, 'Sendungen laden');
-      throw err;
-    }
-  }, [handleError]);
-
-  // Load Customers
-  const loadCustomers = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, name');
-      
-      if (error) throw error;
-      
-      const customerMap = {};
-      (data || []).forEach(customer => {
-        customerMap[customer.id] = customer.name;
-      });
-      
-      console.log('👥 Kunden geladen:', Object.keys(customerMap).length);
-      setCustomers(customerMap);
-      
-      return customerMap;
-    } catch (err) {
-      handleError(err, 'Kunden laden');
-      throw err;
-    }
-  }, [handleError]);
-
-  // Load Partners
-  const loadPartners = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('partners')
-        .select('id, name, emails, phones');
-      
-      if (error) throw error;
-      
-      const partnerMap = {};
-      (data || []).forEach(partner => {
-        partnerMap[partner.id] = partner;
-      });
-      
-      console.log('🤝 Partner geladen:', Object.keys(partnerMap).length);
-      setPartners(partnerMap);
-      
-      return partnerMap;
-    } catch (err) {
-      handleError(err, 'Partner laden');
-      throw err;
-    }
-  }, [handleError]);
-
-  // Calculate Statistics
-  const calculateStats = useCallback((data) => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const newStats = {
-      active: data.filter(s => !['zugestellt', 'delivered', 'storniert', 'ABGELEHNT'].includes(s.status)).length,
-      pickupToday: data.filter(s => s.pickup_date === today).length,
-      inTransit: data.filter(s => s.status === 'in_transit').length,
-      critical: data.filter(s => {
-        // Kritisch: Abgeholt aber überfällig, oder hohe Priorität
-        const isOverdue = s.status === 'abgeholt' && s.pickup_date < today;
-        const isHighPriority = s.priority === 'high';
-        const isDelayed = s.status === 'delayed';
-        return isOverdue || isHighPriority || isDelayed;
-      }).length
-    };
-    
-    console.log('📊 Stats berechnet:', newStats);
-    setStats(newStats);
-  }, []);
-
-  // Update Status via API
-  const updateStatus = useCallback(async (sendungId, type, color) => {
-    try {
-      const sendung = sendungen.find(s => s.id === sendungId);
-      if (!sendung) throw new Error('Sendung nicht gefunden');
-
-      // Traffic Lights Update
-      const trafficLights = sendung.traffic_lights || {};
-      trafficLights[type] = color;
-
-      // Status Logic basierend auf Traffic Light
-      let newStatus = sendung.status;
-      if (type === 'zustellung' && color === 'green') {
-        newStatus = 'zugestellt';
-      } else if (type === 'flug' && color === 'green') {
-        newStatus = 'in_transit';
-      } else if (type === 'abholung' && color === 'green') {
-        newStatus = 'abgeholt';
-      } else if (type === 'abholung' && color === 'yellow') {
-        newStatus = 'booked';
+      const shipmentTrafficLights = trafficLights[shipmentId];
+      if (!shipmentTrafficLights) {
+        throw new Error('Traffic light data not found for shipment');
       }
 
-      // Update via Supabase
+      const { definitions, transportType, importExport } = shipmentTrafficLights;
+      const allMilestones = definitions;
+      const lightMilestones = allMilestones.filter(m => m.ampel === lightType);
+
+      if (!lightMilestones || lightMilestones.length === 0) {
+        throw new Error(`No milestone definitions found for ${lightType}`);
+      }
+
+      // Neue Farbe bestimmen: grey → yellow → green → grey
+      let newColor;
+      switch (currentColor) {
+        case 'grey': newColor = 'yellow'; break;
+        case 'yellow': newColor = 'green'; break;
+        case 'green': newColor = 'grey'; break;
+        default: newColor = 'yellow'; break;
+      }
+
+      console.log(`🚦 Color change: ${currentColor} → ${newColor}`);
+
+      // Milestone-Updates basierend auf neuer Farbe
+      if (newColor === 'grey') {
+        // GRAU: Alle Milestones dieser Ampel entfernen
+        console.log(`🗑️ Removing all ${lightType} milestones`);
+        
+        for (const milestone of lightMilestones) {
+          const { error } = await supabase
+            .from('milestones')
+            .delete()
+            .eq('shipment_id', shipmentId)
+            .eq('milestone_id', milestone.id);
+
+          if (error) {
+            console.error(`Error removing milestone ${milestone.id}:`, error);
+          } else {
+            console.log(`✅ Removed milestone: ${milestone.text}`);
+          }
+        }
+
+      } else if (newColor === 'yellow') {
+        // GELB: Erstes Milestone setzen, andere entfernen
+        console.log(`🟡 Setting first ${lightType} milestone`);
+        
+        const firstMilestone = lightMilestones[0];
+        
+        // Andere Milestones dieser Ampel entfernen
+        for (let i = 1; i < lightMilestones.length; i++) {
+          await supabase
+            .from('milestones')
+            .delete()
+            .eq('shipment_id', shipmentId)
+            .eq('milestone_id', lightMilestones[i].id);
+        }
+
+        // Erstes Milestone setzen (upsert für Duplikat-Schutz)
+        const { error } = await supabase
+          .from('milestones')
+          .upsert({
+            shipment_id: shipmentId,
+            milestone_id: firstMilestone.id,
+            status: firstMilestone.text,
+            timestamp: new Date().toISOString(),
+            notes: `Automatisch gesetzt: ${firstMilestone.text}`,
+            created_by: 'system'
+          }, {
+            onConflict: 'shipment_id,milestone_id'
+          });
+
+        if (error) {
+          console.error(`Error setting milestone ${firstMilestone.id}:`, error);
+        } else {
+          console.log(`✅ Set milestone: ${firstMilestone.text}`);
+        }
+
+      } else if (newColor === 'green') {
+        // GRÜN: Alle Milestones dieser Ampel setzen
+        console.log(`🟢 Setting all ${lightType} milestones`);
+        
+        for (const milestone of lightMilestones) {
+          const { error } = await supabase
+            .from('milestones')
+            .upsert({
+              shipment_id: shipmentId,
+              milestone_id: milestone.id,
+              status: milestone.text,
+              timestamp: new Date().toISOString(),
+              notes: `Automatisch gesetzt: ${milestone.text}`,
+              created_by: 'system'
+            }, {
+              onConflict: 'shipment_id,milestone_id'
+            });
+
+          if (error) {
+            console.error(`Error setting milestone ${milestone.id}:`, error);
+          } else {
+            console.log(`✅ Set milestone: ${milestone.text}`);
+          }
+        }
+      }
+
+      // Traffic lights state lokal updaten
+      setTrafficLights(prev => ({
+        ...prev,
+        [shipmentId]: {
+          ...prev[shipmentId],
+          [lightType]: newColor
+        }
+      }));
+
+      // Daten neu laden um DB-Änderungen zu reflektieren
+      await loadAllData();
+
+      console.log(`✅ Traffic light ${lightType} updated to ${newColor}`);
+
+    } catch (error) {
+      console.error('❌ Traffic light update error:', error);
+      setError(`Traffic Light Update fehlgeschlagen: ${error.message}`);
+    }
+  }, [trafficLights, loadAllData]);
+
+  // ============== SENDUNG STATUS UPDATE ==============
+  const updateStatus = useCallback(async (shipmentId, newStatus) => {
+    try {
+      console.log(`📝 Updating status for shipment ${shipmentId} to ${newStatus}`);
+
       const { error } = await supabase
         .from('shipments')
         .update({ 
           status: newStatus,
-          traffic_lights: trafficLights,
           updated_at: new Date().toISOString()
         })
-        .eq('id', sendungId);
+        .eq('id', shipmentId);
 
       if (error) throw error;
 
-      console.log(`✅ Status updated: ${sendungId} → ${newStatus}`);
-      
-      // Reload data to reflect changes
-      await loadSendungen();
-      
-      return { success: true, newStatus };
-    } catch (err) {
-      handleError(err, 'Status Update');
-      throw err;
-    }
-  }, [sendungen, loadSendungen, handleError]);
+      // Lokalen State updaten
+      setSendungen(prev => 
+        prev.map(s => 
+          s.id === shipmentId 
+            ? { ...s, status: newStatus }
+            : s
+        )
+      );
 
-  // Delete Sendung
-  const deleteSendung = useCallback(async (sendungId) => {
-    try {
-      const { error } = await supabase
-        .from('shipments')
-        .delete()
-        .eq('id', sendungId);
-        
-      if (error) throw error;
-      
-      console.log(`🗑️ Sendung gelöscht: ${sendungId}`);
-      await loadSendungen();
-      
-      return { success: true };
-    } catch (err) {
-      handleError(err, 'Sendung löschen');
-      throw err;
-    }
-  }, [loadSendungen, handleError]);
+      console.log(`✅ Status updated successfully`);
 
-  // Save/Update Sendung
-  const saveSendung = useCallback(async (sendungData, isNew = false) => {
-    try {
-      let result;
-      
-      if (isNew) {
-        // Create new shipment
-        const { data, error } = await supabase
-          .from('shipments')
-          .insert([{
-            ...sendungData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }])
-          .select()
-          .single();
-          
-        if (error) throw error;
-        result = data;
-        
-        console.log('➕ Neue Sendung erstellt:', result.id);
-      } else {
-        // Update existing shipment
-        const { data, error } = await supabase
-          .from('shipments')
-          .update({
-            ...sendungData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', sendungData.id)
-          .select()
-          .single();
-          
-        if (error) throw error;
-        result = data;
-        
-        console.log('💾 Sendung aktualisiert:', result.id);
-      }
-      
-      await loadSendungen();
-      return { success: true, data: result };
-    } catch (err) {
-      handleError(err, 'Sendung speichern');
-      throw err;
+    } catch (error) {
+      console.error('❌ Status update error:', error);
+      setError(`Status Update fehlgeschlagen: ${error.message}`);
     }
-  }, [loadSendungen, handleError]);
+  }, []);
 
-  // Save Costs via Backend API
+  // ============== COST MANAGEMENT ==============
   const saveCosts = useCallback(async (shipmentId, costs) => {
     try {
-      console.log('💰 Speichere Kosten für Shipment:', shipmentId, costs);
-      
-      // Validate costs object
-      const validCosts = {
-        pickup_cost: parseFloat(costs.pickup_cost || 0),
-        main_cost: parseFloat(costs.main_cost || costs.mainrun_cost || 0),
-        delivery_cost: parseFloat(costs.delivery_cost || 0)
-      };
+      console.log(`💰 Saving costs for shipment ${shipmentId}:`, costs);
 
-      // Use Backend API endpoint
-      const response = await fetch(`http://localhost:3001/api/shipments/${shipmentId}/costs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          cost_type: 'bulk', // Bulk update alle Kosten
-          costs: validCosts,
-          method: 'magic_input'
+      const { error } = await supabase
+        .from('shipments')
+        .update({
+          cost_pickup: costs.pickup_cost || 0,
+          cost_mainrun: costs.main_cost || 0,
+          cost_delivery: costs.delivery_cost || 0,
+          updated_at: new Date().toISOString()
         })
-      });
+        .eq('id', shipmentId);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'API Fehler');
-      }
+      if (error) throw error;
 
-      const result = await response.json();
-      console.log('✅ Kosten gespeichert:', result);
-      
-      // Reload data
-      await loadSendungen();
-      
-      return { success: true, data: result };
-    } catch (err) {
-      // Fallback: Direct Supabase update
-      console.warn('API Fehler, verwende Supabase fallback:', err);
-      
-      try {
-        const { data, error } = await supabase
-          .from('shipments')
-          .update({
-            pickup_cost: parseFloat(costs.pickup_cost || 0),
-            main_cost: parseFloat(costs.main_cost || costs.mainrun_cost || 0),
-            delivery_cost: parseFloat(costs.delivery_cost || 0),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', shipmentId)
-          .select()
-          .single();
+      // Lokalen State updaten
+      setSendungen(prev =>
+        prev.map(s =>
+          s.id === shipmentId
+            ? {
+                ...s,
+                cost_pickup: costs.pickup_cost || 0,
+                cost_mainrun: costs.main_cost || 0,
+                cost_delivery: costs.delivery_cost || 0
+              }
+            : s
+        )
+      );
 
-        if (error) throw error;
-        
-        await loadSendungen();
-        return { success: true, data };
-      } catch (fallbackErr) {
-        handleError(fallbackErr, 'Kosten speichern (Fallback)');
-        throw fallbackErr;
-      }
+      console.log(`✅ Costs saved successfully`);
+
+    } catch (error) {
+      console.error('❌ Save costs error:', error);
+      setError(`Kosten speichern fehlgeschlagen: ${error.message}`);
     }
-  }, [loadSendungen, handleError]);
+  }, []);
 
- // Create Offer via Backend API mit Supabase Fallback
+  // ============== OFFER CREATION ==============
   const createOffer = useCallback(async (shipmentId, offerData) => {
     try {
-      console.log('💼 Erstelle Angebot für:', shipmentId, offerData);
-      
-      // Angebots-Nummer generieren
-      const offerNumber = `ANG-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-      
-      // Erweiterte Angebots-Daten
-      const extendedOfferData = {
-        ...offerData,
-        offer_number: offerNumber,
-        offer_created_at: new Date().toISOString(),
-        status: 'ANGEBOT'
-      };
+      console.log(`💼 Creating offer for shipment ${shipmentId}:`, offerData);
 
-      // Direkt Supabase verwenden (Backend hat keinen create-offer endpoint)
-      console.log('💼 Verwende Supabase für Angebot-Erstellung');
-        
-       // Supabase Angebot-Erstellung
-      const updateData = {
-        status: 'ANGEBOT',
-        offer_number: offerNumber,
-        offer_price: parseFloat(offerData.offer_price || 0),
-        offer_profit: parseFloat(offerData.offer_profit || 0),
-        offer_margin_percent: parseFloat(offerData.offer_margin_percent || 0),
-        offer_created_at: offerData.offer_created_at || new Date().toISOString(),
-        offer_valid_until: offerData.offer_valid_until || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-        offer_notes: generateOfferText(shipmentId, offerData),
+      const { error } = await supabase
+        .from('shipments')
+        .update({
+          status: 'ANGEBOT',
+          offer_price: offerData.price,
+          offer_profit: offerData.profit,
+          offer_margin_percent: offerData.marginPercent,
+          offer_number: offerData.offerNumber,
+          offer_created_at: new Date().toISOString(),
+          offer_valid_until: offerData.validUntil,
+          offer_notes: offerData.notes,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shipmentId);
+
+      if (error) throw error;
+
+      // Lokalen State updaten
+      setSendungen(prev =>
+        prev.map(s =>
+          s.id === shipmentId
+            ? {
+                ...s,
+                status: 'ANGEBOT',
+                offer_price: offerData.price,
+                offer_profit: offerData.profit,
+                offer_margin_percent: offerData.marginPercent,
+                offer_number: offerData.offerNumber,
+                offer_created_at: new Date().toISOString(),
+                offer_valid_until: offerData.validUntil,
+                offer_notes: offerData.notes
+              }
+            : s
+        )
+      );
+
+      console.log(`✅ Offer created successfully`);
+
+    } catch (error) {
+      console.error('❌ Create offer error:', error);
+      setError(`Angebot erstellen fehlgeschlagen: ${error.message}`);
+    }
+  }, []);
+
+  // ============== OFFER HANDLING ==============
+  const handleOffer = useCallback(async (shipmentId, action, reason = '') => {
+    try {
+      console.log(`💼 Handling offer ${action} for shipment ${shipmentId}`);
+
+      let updateData = {
         updated_at: new Date().toISOString()
       };
 
-      console.log('💾 Supabase Update Data:', updateData);
+      if (action === 'accept') {
+        updateData.status = 'created';
+        // Verwende existierende DB-Spalten
+        updateData.selling_price = sendungen.find(s => s.id === shipmentId)?.offer_price || 0;
+        updateData.profit = sendungen.find(s => s.id === shipmentId)?.offer_profit || 0;
+        updateData.margin = sendungen.find(s => s.id === shipmentId)?.offer_margin_percent || 0;
+        
+        // AWB generieren wenn nicht vorhanden
+        const sendung = sendungen.find(s => s.id === shipmentId);
+        if (!sendung?.awb_number) {
+          updateData.awb_number = `AWB-${new Date().getFullYear()}-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+        }
+      } else if (action === 'reject') {
+        updateData.status = 'ABGELEHNT';
+        // Keine nicht-existierenden Spalten mehr verwenden
+      }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('shipments')
         .update(updateData)
+        .eq('id', shipmentId);
+
+      if (error) throw error;
+
+      // Lokalen State updaten
+      setSendungen(prev =>
+        prev.map(s =>
+          s.id === shipmentId
+            ? { ...s, ...updateData }
+            : s
+        )
+      );
+
+      console.log(`✅ Offer ${action} handled successfully`);
+
+    } catch (error) {
+      console.error(`❌ Handle offer ${action} error:`, error);
+      setError(`Angebot ${action} fehlgeschlagen: ${error.message}`);
+    }
+  }, [sendungen]);
+
+  // ============== INITIALIZE DATA ==============
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
+  // ============== ERWEITERTE FUNKTIONEN ==============
+  const updateFlightTimes = useCallback(async (shipmentId, flightData) => {
+    try {
+      console.log('✈️ Updating flight times:', shipmentId, flightData);
+      
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          departure_time: flightData.departure || null,
+          arrival_time: flightData.arrival || null,
+          etd: flightData.etd || null,
+          eta: flightData.eta || null,
+          cutoff_time: flightData.cutoff || null,
+          flight_number: flightData.flightNumber || null,
+          flight_confirmed: Boolean(flightData.confirmed),
+          updated_at: new Date().toISOString()
+        })
         .eq('id', shipmentId)
         .select()
         .single();
 
-      if (error) {
-        console.error('❌ Supabase Error Details:', error);
-        throw new Error(`Supabase Fehler: ${error.message}`);
-      }
-
-      console.log('✅ Angebot erfolgreich erstellt:', data);
+      if (error) throw error;
       
-      await loadSendungen();
-      return { success: true, data: data };
+      console.log('✅ Flight times updated');
+      await loadAllData(); // Daten neu laden
+      return data;
       
-    } catch (err) {
-      console.error('❌ Angebot erstellen fehlgeschlagen:', err);
-      handleError(err, 'Angebot erstellen');
-      throw err;
+    } catch (error) {
+      console.error('❌ updateFlightTimes error:', error);
+      setError(`Fehler beim Aktualisieren der Flugzeiten: ${error.message}`);
     }
-  }, [loadSendungen, handleError]);
+  }, [loadAllData]);
 
-  // Angebots-Text Generator
-  const generateOfferText = useCallback((shipmentId, offerData) => {
-    const currentSendung = sendungen.find(s => s.id === shipmentId);
-    if (!currentSendung) return 'Angebot erstellt';
-
-    const customerName = customers[currentSendung.customer_id] || 'Wertgeschätzter Kunde';
-    
-    return `Sehr geehrte Damen und Herren,
-
-gerne unterbreiten wir Ihnen folgendes Angebot für Ihre Luftfrachtsendung:
-
-SENDUNGSDETAILS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Von: ${currentSendung.origin_airport || 'N/A'}
-Nach: ${currentSendung.destination_airport || 'N/A'}
-Frankatur: ${currentSendung.incoterm || 'CPT'} ${currentSendung.destination_airport || 'Zielort'}
-
-Gewicht: ${currentSendung.total_weight || 0} kg
-Packstücke: ${currentSendung.total_pieces || 0} Colli
-Ware: ${currentSendung.commodity || 'Allgemeine Fracht'}
-
-PREISANGABE:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Transportpreis: EUR ${offerData.offer_price?.toFixed(2) || '0.00'}
-Frankatur: ${currentSendung.incoterm || 'CPT'} ${currentSendung.destination_airport || 'Zielort'}
-
-Das Angebot ist gültig bis ${new Date(offerData.offer_valid_until).toLocaleDateString('de-DE')}.
-
-Mit freundlichen Grüßen
-Ihr LogistikPro Team`;
-  }, [sendungen, customers]);
-
- // Accept/Reject Offer
-const handleOffer = useCallback(async (shipmentId, action, reason = '') => {
-  try {
-    let newStatus;
-    let updateData = {
-      updated_at: new Date().toISOString()
-    };
-    
-    if (action === 'accept') {
-      // Status auf BEAUFTRAGT setzen
-      newStatus = 'BEAUFTRAGT';
-      updateData.status = newStatus;
-      updateData.offer_accepted_at = new Date().toISOString();
-      updateData.converted_to_shipment_at = new Date().toISOString();
-     
-      // Generiere Auftragsnummer
-      updateData.order_number = `AUF-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-     
-      // Hole die Sendung für die Angebotsdaten
-      const sendung = sendungen.find(s => s.id === shipmentId);
-      if (sendung) {
-        updateData.order_price = sendung.offer_price;
-        updateData.order_margin = sendung.offer_margin_percent;
-        updateData.order_profit = sendung.offer_profit;
-        
-        // Generate AWB if not exists
-        if (!sendung.awb_number) {
-          updateData.awb_number = `020-${Math.floor(Math.random() * 99999999).toString().padStart(8, '0')}`;
-        }
-      }
-     
-      console.log('✅ Erstelle Auftrag mit Daten:', updateData);
-     
-    } else if (action === 'reject') {
-      newStatus = 'ABGELEHNT';
-      updateData.status = newStatus;
-      updateData.rejected_at = new Date().toISOString();
-      updateData.rejection_reason = reason;
-    }
-    
-    const { error } = await supabase
-      .from('shipments')
-      .update(updateData)
-      .eq('id', shipmentId);
+  const updateNotes = useCallback(async (shipmentId, notesData) => {
+    try {
+      console.log('📝 Updating notes:', shipmentId, notesData);
       
-    if (error) throw error;
-    
-    console.log(`📋 Angebot ${action}ed:`, shipmentId);
-    await loadSendungen();
-   
-    return { success: true, newStatus };
-    
-  } catch (err) {
-    handleError(err, `Angebot ${action}`);
-    throw err;
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          notes: notesData.general || null,
+          special_instructions: notesData.instructions || null,
+          customer_notes: notesData.customer || null,
+          internal_notes: notesData.internal || null,
+          remarks: notesData.remarks || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shipmentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      console.log('✅ Notes updated');
+      await loadAllData();
+      return data;
+      
+    } catch (error) {
+      console.error('❌ updateNotes error:', error);
+      setError(`Fehler beim Aktualisieren der Notizen: ${error.message}`);
+    }
+  }, [loadAllData]);
+
+  const updateStatusConfirmations = useCallback(async (shipmentId, confirmations) => {
+    try {
+      console.log('🚦 Updating status confirmations:', shipmentId, confirmations);
+      
+      const { data, error } = await supabase
+        .from('shipments')
+        .update({
+          pickup_confirmed: Boolean(confirmations.pickup),
+          flight_confirmed: Boolean(confirmations.flight),
+          delivery_confirmed: Boolean(confirmations.delivery),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shipmentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      console.log('✅ Status confirmations updated');
+      await loadAllData();
+      return data;
+      
+    } catch (error) {
+      console.error('❌ updateStatusConfirmations error:', error);
+      setError(`Fehler beim Aktualisieren der Bestätigungen: ${error.message}`);
+    }
+  }, [loadAllData]);
+
+// DELETE SENDUNG FUNKTION
+const deleteSendung = async (sendungId) => {
+  console.log('🗑️ DELETE FUNCTION CALLED:', sendungId);
+  
+  if (!sendungId) {
+    console.error('🗑️ ERROR: Keine Sendung-ID übergeben');
+    setError('Fehler: Keine gültige Sendung-ID');
+    return;
   }
-}, [sendungen, loadSendungen, handleError]);
 
-  // Return Hook Interface
+  try {
+    setLoading(true);
+    setError(null);
+    
+    console.log('🗑️ SENDING DELETE REQUEST to Supabase...');
+    
+    // Supabase Delete
+    const { error: supabaseError } = await supabase
+      .from('shipments')
+      .delete()
+      .eq('id', sendungId);
+
+    if (supabaseError) {
+      console.error('🗑️ SUPABASE DELETE ERROR:', supabaseError);
+      throw new Error(`Supabase Fehler: ${supabaseError.message}`);
+    }
+
+    console.log('🗑️ SUPABASE DELETE SUCCESS');
+    
+    // Nach erfolgreichem Löschen alle Daten neu laden
+    await loadAllData();
+    console.log('🗑️ DELETE COMPLETE');
+    
+  } catch (error) {
+    console.error('🗑️ DELETE ERROR:', error);
+    setError(`Fehler beim Löschen der Sendung: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+  // ============== RETURN HOOK INTERFACE - ERWEITERT ==============
   return {
-    // State
+    // Data
     sendungen,
     customers,
     partners,
+    milestones,
+    trafficLights,
+   
+    // States
     loading,
     error,
     stats,
-    
-    // Methods
+   
+    // Methods - Original
     loadAllData,
-    loadSendungen,
-    loadCustomers,
-    loadPartners,
     updateStatus,
-    deleteSendung,
-    saveSendung,
+    deleteSendung,          // ← NEU HINZUGEFÜGT
+    updateTrafficLight,
     saveCosts,
     createOffer,
     handleOffer,
-    
+   
+    // Methods - NEU für erweiterte DB-Felder
+    updateFlightTimes,
+    updateNotes,
+    updateStatusConfirmations,
+   
     // Utilities
-    calculateStats,
     clearError: () => setError(null)
   };
 };
-
+// Default Export für Kompatibilität
 export default useSendungsData;
