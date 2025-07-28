@@ -1,5 +1,5 @@
 // C:\Users\Sergio Caro\LogistikApp\frontend\src\components\SendungsTable.jsx
-// ✅ VOLLSTÄNDIGE VERSION MIT ALLEN FEATURES
+// ✅ VOLLSTÄNDIGE VERSION MIT ALLEN FEATURES - TEIL 1
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -14,6 +14,7 @@ const SendungsTable = ({
   sendungen,
   customers,
   partners,
+  trafficLights,        // ← VERWENDET BEREITS BERECHNETE TRAFFIC LIGHTS
   viewMode,
   searchTerm,
   onEditClick,
@@ -44,343 +45,28 @@ const SendungsTable = ({
     }));
   };
 
-  // ✅ MILESTONE-FUNKTIONEN (Vereinfacht aber vollständig)
-  const getMilestones = (transportType, importExport) => {
-    const airExport = [
-      { id: 1, text: 'Buchung erfasst', ampel: 'abholung' },
-      { id: 2, text: 'Abholung geplant', ampel: 'abholung' },
-      { id: 3, text: 'Abgeholt', ampel: 'abholung' },
-      { id: 4, text: 'AWB erstellt', ampel: 'carrier' },
-      { id: 5, text: 'Fracht angenommen', ampel: 'carrier' },
-      { id: 6, text: 'Beladen', ampel: 'carrier' },
-      { id: 7, text: 'Abgeflogen', ampel: 'carrier' },
-      { id: 8, text: 'Angekommen', ampel: 'zustellung' },
-      { id: 9, text: 'Zustellung geplant', ampel: 'zustellung' },
-      { id: 10, text: 'Zugestellt', ampel: 'zustellung' }
-    ];
-    return airExport;
-  };
-
-  const getMilestonesForAmpel = (transportType, importExport, ampelType) => {
-    const allMilestones = getMilestones(transportType, importExport);
-    return allMilestones.filter(m => m.ampel === ampelType);
-  };
-
-  const calculateTrafficLightStatus = (milestones, completedIds) => {
-    return { abholung: 'grey', carrier: 'grey', zustellung: 'grey' };
-  };
-
-  const calculateAmpelStatus = (milestones, completedIds, type) => {
+  // ✅ VEREINFACHTE TRAFFIC LIGHT STATUS FUNKTION
+  const getTrafficLightStatus = (sendung, type) => {
+    // Verwende BEREITS BERECHNETE Traffic Lights aus useSendungsData
+    if (trafficLights && trafficLights[sendung.id]) {
+      const status = trafficLights[sendung.id][type];
+      console.log(`🚦 Using calculated traffic light for ${sendung.position} - ${type}:`, status);
+      return status;
+    }
+    
+    // Fallback wenn keine Traffic Light Daten vorhanden
+    console.warn(`⚠️ No traffic light data for sendung ${sendung.position}, type ${type}`);
     return 'grey';
   };
 
-  const getAmpelStatusInfo = (status) => {
-    return { text: status, color: getTrafficLightColor(status) };
-  };
-
-  const getTransportKey = (transportType, importExport) => {
-    return `${transportType}_${importExport}`;
-  };
-
-  // ✅ DATUMS-BASIERTE AMPEL-STATUS BERECHNUNG
-  const getAmperStatusBasedOnDates = (sendung, type) => {
-    const now = new Date();
-    
-    switch(type) {
-      case 'abholung':
-        if (sendung.pickup_date) {
-          return 'green'; // Abgeholt
-        } else if (sendung.estimated_pickup_date) {
-          const estimatedDate = new Date(sendung.estimated_pickup_date);
-          const diffDays = Math.ceil((estimatedDate - now) / (1000 * 60 * 60 * 24));
-          
-          if (diffDays < 0) {
-            return 'red'; // Überfällig
-          } else if (diffDays <= 1) {
-            return 'yellow'; // Heute/Morgen
-          } else {
-            return 'grey'; // Zukünftig geplant
-          }
-        } else {
-          return 'grey'; // Nicht geplant
-        }
-        
-      case 'carrier':
-        if (sendung.status === 'in_transit' || sendung.departure_time) {
-          return 'green'; // Unterwegs
-        } else if (sendung.awb_number && sendung.estimated_pickup_date) {
-          const pickupDate = new Date(sendung.estimated_pickup_date);
-          const diffDays = Math.ceil((pickupDate - now) / (1000 * 60 * 60 * 24));
-          
-          if (diffDays <= 0) {
-            return 'yellow'; // Bereit für Transport
-          } else {
-            return 'grey'; // AWB da, aber noch nicht bereit
-          }
-        } else {
-          return 'grey'; // Noch keine AWB
-        }
-        
-      case 'zustellung':
-        if (sendung.delivery_date || sendung.actual_delivery_date) {
-          return 'green'; // Zugestellt
-        } else if (sendung.estimated_delivery_date || sendung.eta) {
-          const estimatedDate = new Date(sendung.estimated_delivery_date || sendung.eta);
-          const diffDays = Math.ceil((estimatedDate - now) / (1000 * 60 * 60 * 24));
-          
-          if (diffDays < 0) {
-            return 'red'; // Überfällig
-          } else if (diffDays <= 1) {
-            return 'yellow'; // Heute/Morgen erwartet
-          } else {
-            return 'grey'; // Zukünftig geplant
-          }
-        } else {
-          return 'grey'; // Nicht geplant
-        }
-        
-      default:
-        return 'grey';
-    }
-  };
-
-  // ✅ ÜBERARBEITETE TRAFFIC LIGHT STATUS FUNKTION
-  const getTrafficLightStatus = (sendung, type) => {
-    try {
-      // 1. PRIMÄR: Datums-basierte Berechnung
-      const dateBasedStatus = getAmperStatusBasedOnDates(sendung, type);
-      
-      // 2. FALLBACK: Milestone-basierte Berechnung
-      if (sendung && sendung.traffic_lights && sendung.traffic_lights[type]) {
-        console.log(`🚦 Using saved traffic light for ${type}:`, sendung.traffic_lights[type]);
-        return sendung.traffic_lights[type];
-      }
-
-      const transportType = sendung.transport_type || 'AIR';
-      const importExport = sendung.import_export || 'EXPORT';
-      
-      const milestones = getMilestones(transportType, importExport);
-      
-      // ✅ ECHTE DATUMS-BASIERTE MILESTONE-COMPLETION LOGIC
-      let completedMilestoneIds = [];
-      
-      // 1. BUCHUNG/ERFASSUNG (Milestone 1)
-      if (sendung.created_at || sendung.booking_date) {
-        completedMilestoneIds.push(1);
-      }
-      
-      // 2. ABHOLUNG MILESTONES (2-4)
-      if (sendung.pickup_date || sendung.pickup_confirmed) {
-        // Alle Abholung-Milestones als completed markieren
-        const abholungMilestones = milestones.filter(m => m.ampel === 'abholung');
-        completedMilestoneIds.push(...abholungMilestones.map(m => m.id));
-        console.log('🚚 ABHOLUNG COMPLETED:', abholungMilestones.map(m => m.id));
-      } else if (sendung.estimated_pickup_date) {
-        // Nur erste Abholung-Milestone (geplant)
-        const firstAbholungMilestone = milestones.find(m => m.ampel === 'abholung');
-        if (firstAbholungMilestone) {
-          completedMilestoneIds.push(firstAbholungMilestone.id);
-          console.log('📅 ABHOLUNG GEPLANT:', firstAbholungMilestone.id);
-        }
-      }
-      
-      // 3. CARRIER/TRANSPORT MILESTONES (5-8) 
-      if (sendung.awb_number || sendung.flight_confirmed) {
-        // AWB erhalten = Carrier-Milestones begonnen
-        const carrierMilestones = milestones.filter(m => m.ampel === 'carrier');
-        const halfCarrier = Math.ceil(carrierMilestones.length / 2);
-        completedMilestoneIds.push(...carrierMilestones.slice(0, halfCarrier).map(m => m.id));
-        console.log('✈️ CARRIER BEGONNEN:', carrierMilestones.slice(0, halfCarrier).map(m => m.id));
-        
-        // Wenn in Transit oder später = alle Carrier completed
-        if (sendung.status === 'in_transit' || sendung.departure_time || sendung.etd) {
-          completedMilestoneIds.push(...carrierMilestones.map(m => m.id));
-          console.log('🛫 CARRIER KOMPLETT:', carrierMilestones.map(m => m.id));
-        }
-      }
-      
-      // 4. ZUSTELLUNG MILESTONES (9-10)
-      if (sendung.delivery_date || sendung.actual_delivery_date || sendung.delivery_confirmed) {
-        // Alle Zustellung-Milestones als completed
-        const zustellungMilestones = milestones.filter(m => m.ampel === 'zustellung');
-        completedMilestoneIds.push(...zustellungMilestones.map(m => m.id));
-        console.log('🚚 ZUSTELLUNG COMPLETED:', zustellungMilestones.map(m => m.id));
-      } else if (sendung.estimated_delivery_date || sendung.eta) {
-        // Nur erste Zustellung-Milestone (geplant)
-        const firstZustellungMilestone = milestones.find(m => m.ampel === 'zustellung');
-        if (firstZustellungMilestone) {
-          completedMilestoneIds.push(firstZustellungMilestone.id);
-          console.log('📅 ZUSTELLUNG GEPLANT:', firstZustellungMilestone.id);
-        }
-      }
-      
-      // 5. STATUS-BASIERTE ERGÄNZUNGEN (Fallback)
-      if (sendung.status === 'zugestellt' && completedMilestoneIds.length < milestones.length) {
-        // Wenn Status "zugestellt" aber nicht alle Milestones = alle ergänzen
-        completedMilestoneIds = milestones.map(m => m.id);
-        console.log('✅ STATUS ZUGESTELLT - ALLE MILESTONES COMPLETED');
-      }
-      
-      console.log(`🚦 ${type.toUpperCase()} STATUS:`, {
-        dateBasedStatus,
-        sendung: sendung.position,
-        status: sendung.status
-      });
-      
-      return dateBasedStatus;
-      
-    } catch (error) {
-      console.warn('Traffic Light Status Error:', error);
-      return 'grey';
-    }
-  };
-
-  // Helper Funktionen für Ampel-Status-Text - KORRIGIERT UND HINZUGEFÜGT
-  const getAmpelProgress = (sendung, type) => {
-    try {
-      const transportType = sendung.transport_type || 'AIR';
-      const importExport = sendung.import_export || 'EXPORT';
-      const milestonesForAmpel = getMilestonesForAmpel(transportType, importExport, type);
-      
-      // Completed Milestones basierend auf Status berechnen
-      let completedMilestoneIds = [];
-      switch(sendung.status) {
-        case 'ANFRAGE':
-        case 'ANGEBOT':
-          completedMilestoneIds = [];
-          break;
-        case 'created':
-        case 'booked':
-          completedMilestoneIds = [1];
-          break;
-        case 'abgeholt':
-          completedMilestoneIds = getMilestones(transportType, importExport)
-            .filter(m => m.ampel === 'abholung').map(m => m.id);
-          break;
-        case 'in_transit':
-          completedMilestoneIds = getMilestones(transportType, importExport)
-            .filter(m => ['abholung', 'carrier'].includes(m.ampel)).map(m => m.id);
-          break;
-        case 'zugestellt':
-          completedMilestoneIds = getMilestones(transportType, importExport).map(m => m.id);
-          break;
-        default:
-          completedMilestoneIds = [];
-      }
-      
-      const completedInThisAmpel = milestonesForAmpel.filter(m => 
-        completedMilestoneIds.includes(m.id)
-      ).length;
-      
-      return `${completedInThisAmpel}/${milestonesForAmpel.length}`;
-    } catch (error) {
-      console.warn('getAmpelProgress Error:', error);
-      return '0/0';
-    }
-  };
-
-  const getAmpelStatusText = (sendung, type) => {
-    try {
-      const transportType = sendung.transport_type || 'AIR';
-      const importExport = sendung.import_export || 'EXPORT';
-      const milestonesForAmpel = getMilestonesForAmpel(transportType, importExport, type);
-      
-      // Completed Milestones basierend auf Status berechnen  
-      let completedMilestoneIds = [];
-      switch(sendung.status) {
-        case 'ANFRAGE':
-        case 'ANGEBOT':
-          completedMilestoneIds = [];
-          break;
-        case 'created':
-        case 'booked':
-          completedMilestoneIds = [1];
-          break;
-        case 'abgeholt':
-          completedMilestoneIds = getMilestones(transportType, importExport)
-            .filter(m => m.ampel === 'abholung').map(m => m.id);
-          break;
-        case 'in_transit':
-          completedMilestoneIds = getMilestones(transportType, importExport)
-            .filter(m => ['abholung', 'carrier'].includes(m.ampel)).map(m => m.id);
-          break;
-        case 'zugestellt':
-          completedMilestoneIds = getMilestones(transportType, importExport).map(m => m.id);
-          break;
-        default:
-          completedMilestoneIds = [];
-      }
-      
-      const completedInThisAmpel = milestonesForAmpel.filter(m => 
-        completedMilestoneIds.includes(m.id)
-      );
-      
-      if (completedInThisAmpel.length === 0) {
-        return milestonesForAmpel.length > 0 ? milestonesForAmpel[0].text : 'Warten';
-      } else if (completedInThisAmpel.length === milestonesForAmpel.length) {
-        return 'Abgeschlossen';
-      } else {
-        // Nächster Milestone
-        const nextMilestone = milestonesForAmpel.find(m => !completedMilestoneIds.includes(m.id));
-        return nextMilestone ? nextMilestone.text : 'In Bearbeitung';
-      }
-    } catch (error) {
-      console.warn('getAmpelStatusText Error:', error);
-      return 'Fehler';
-    }
-  };
-
-  // Traffic Light Component mit ECHTEN MILESTONES - FINAL VERSION
+  // ✅ VEREINFACHTE TRAFFIC LIGHT COMPONENT
   const TrafficLight = ({ sendung, type, onTrafficLightClick }) => {
-    console.log('🚦 TrafficLight NEUE LOGIC:', { 
-      sendung: sendung.position, 
-      type, 
-      transportType: sendung.transport_type,
-      importExport: sendung.import_export,
-      status: sendung.status
-    });
-
-    // Echte Milestone-Berechnung mit der neuen API
-    const transportType = sendung.transport_type || 'AIR';
-    const importExport = sendung.import_export || 'EXPORT';
+    // Verwende nur bereits berechnete Werte - KEINE lokale Berechnung mehr!
+    const currentStatus = getTrafficLightStatus(sendung, type);
+    const color = getTrafficLightColor(currentStatus);
     
-    // Hole alle Milestones für diese Sendung
-    const allMilestones = getMilestones(transportType, importExport);
+    console.log(`🚦 TrafficLight KRITIKALITÄTS-BASIERT: ${sendung.position} - ${type} = ${currentStatus}`);
     
-    // Filtere Milestones für diese spezifische Ampel
-    const ampelMilestones = getMilestonesForAmpel(transportType, importExport, type);
-    
-    console.log('🚦 Milestone Data:', {
-      allMilestones: allMilestones.length,
-      ampelMilestones: ampelMilestones.length,
-      ampelType: type,
-      milestones: ampelMilestones
-    });
-    
-    // Simuliere completed Milestones basierend auf Sendungsstatus
-    let completedMilestoneIds = [];
-    
-    // ✅ ECHTE DATUMS-BASIERTE MILESTONE-COMPLETION LOGIC (siehe oben)
-    
-    console.log('🚦 Completed IDs:', completedMilestoneIds);
-    
-    // ✅ NEUE DATUMS-BASIERTE AMPEL-BERECHNUNG
-    const finalAmpelStatus = getTrafficLightStatus(sendung, type);
-    const color = getTrafficLightColor(finalAmpelStatus);
-    
-    console.log(`🚦 ${type.toUpperCase()} FINAL:`, {
-      status: finalAmpelStatus,
-      color: color,
-      sendung: sendung.position
-    });
-    
-    // Milestone-Progress für diese Ampel
-    const completedAmpelMilestones = ampelMilestones.filter(m => 
-      completedMilestoneIds.includes(m.id)
-    ).length;
-    const totalAmpelMilestones = ampelMilestones.length;
-    
-    // ✅ DATUMS-BASIERTE TOOLTIP
     const getTooltipText = () => {
       const labels = {
         'abholung': 'Abholung',
@@ -389,73 +75,42 @@ const SendungsTable = ({
       };
       
       const statusTexts = {
-        'grey': 'Nicht geplant/bereit',
-        'yellow': 'Heute/Morgen oder bereit',
-        'green': 'Abgeschlossen/Bestätigt',
-        'red': 'Überfällig/Problem'
+        'grey': 'Nicht bereit/geplant',
+        'yellow': 'Kritisch - 2h vor Cut-off!',
+        'green': 'Abgeschlossen/Rechtzeitig',
+        'red': 'Problem - Cut-off verpasst!'
       };
       
+      // Zusätzliche Info basierend auf Flug-Daten
       let dateInfo = '';
-      switch(type) {
-        case 'abholung':
-          if (sendung.pickup_date) {
-            dateInfo = `\n✅ Abgeholt: ${formatDate(sendung.pickup_date)}`;
-          } else if (sendung.estimated_pickup_date) {
-            dateInfo = `\n📅 Geplant: ${formatDate(sendung.estimated_pickup_date)}`;
-          }
-          break;
-        case 'carrier':
-          if (sendung.awb_number) {
-            dateInfo = `\n✈️ AWB: ${sendung.awb_number}`;
-          }
-          if (sendung.departure_time || sendung.etd) {
-            dateInfo += `\n🛫 Abflug: ${formatDateTime(sendung.departure_time || sendung.etd)}`;
-          }
-          break;
-        case 'zustellung':
-          if (sendung.delivery_date) {
-            dateInfo = `\n✅ Zugestellt: ${formatDate(sendung.delivery_date)}`;
-          } else if (sendung.estimated_delivery_date || sendung.eta) {
-            dateInfo = `\n📅 Erwartet: ${formatDate(sendung.estimated_delivery_date || sendung.eta)}`;
-          }
-          break;
+      if (type === 'abholung' && sendung.cutoff_time) {
+        dateInfo = `\n⏰ Cut-off: ${formatTime(sendung.cutoff_time)}`;
+      } else if (type === 'carrier' && sendung.etd) {
+        dateInfo = `\n✈️ ETD: ${formatDateTime(sendung.etd)}`;
+      } else if (type === 'zustellung' && sendung.eta) {
+        dateInfo = `\n🛬 ETA: ${formatDateTime(sendung.eta)}`;
       }
       
-      return `${labels[type]}: ${statusTexts[finalAmpelStatus]}${dateInfo}\n\nKlicken zum Ändern`;
+      return `${labels[type]}: ${statusTexts[currentStatus]}${dateInfo}\n\nKlicken zum Ändern`;
     };
 
     return (
       <div
         onClick={(e) => {
           e.stopPropagation();
-          console.log('🚦 Traffic Light clicked - DATUMS-BASIERTE LOGIC:', { 
+          console.log('🚦 Traffic Light clicked - KRITIKALITÄTS-BASIERT:', { 
             sendung: sendung.id, 
             type, 
-            status: finalAmpelStatus,
+            status: currentStatus
           });
           
           if (onTrafficLightClick) {
-            // Übergebe relevante Sendungsdaten
             onTrafficLightClick(e, sendung.id, type, {
-              currentStatus: finalAmpelStatus,
-              sendung: sendung,
-              dates: {
-                pickup_date: sendung.pickup_date,
-                estimated_pickup_date: sendung.estimated_pickup_date,
-                awb_number: sendung.awb_number,
-                delivery_date: sendung.delivery_date,
-                estimated_delivery_date: sendung.estimated_delivery_date,
-                eta: sendung.eta,
-                etd: sendung.etd
-              }
+              currentStatus: currentStatus,
+              sendung: sendung
             });
           } else {
             console.warn('⚠️ onTrafficLightClick prop missing');
-            alert(`Traffic Light: ${type}\nStatus: ${finalAmpelStatus}\n\nDaten:\n${JSON.stringify({
-              pickup_date: sendung.pickup_date,
-              awb_number: sendung.awb_number,
-              delivery_date: sendung.delivery_date
-            }, null, 2)}`);
           }
         }}
         style={{
@@ -480,7 +135,7 @@ const SendungsTable = ({
           e.target.style.boxShadow = `0 0 8px ${color}40`;
         }}
       >
-        {/* ✅ VEREINFACHTER PROGRESS INDICATOR */}
+        {/* Status Indicator */}
         <div style={{
           position: 'absolute',
           top: '-8px',
@@ -494,9 +149,9 @@ const SendungsTable = ({
           minWidth: '16px',
           textAlign: 'center'
         }}>
-          {finalAmpelStatus === 'green' ? '✓' : 
-           finalAmpelStatus === 'yellow' ? '!' : 
-           finalAmpelStatus === 'red' ? '⚠' : '○'}
+          {currentStatus === 'green' ? '✓' : 
+           currentStatus === 'yellow' ? '!' : 
+           currentStatus === 'red' ? '⚠' : '○'}
         </div>
       </div>
     );
@@ -551,6 +206,44 @@ const SendungsTable = ({
         breakdown
       };
     }
+  };
+
+  // ✅ VEREINFACHTE STATUS-TEXT FUNKTIONEN
+  const getAmpelStatusText = (sendung, type) => {
+    const status = getTrafficLightStatus(sendung, type);
+    
+    const statusTexts = {
+      'abholung': {
+        'green': 'Abgeholt',
+        'yellow': 'Cut-off bald!',
+        'red': 'Cut-off verpasst!',
+        'grey': 'Nicht geplant'
+      },
+      'carrier': {
+        'green': 'In Transit',
+        'yellow': 'Bereit/Bald',
+        'red': 'Verspätet',
+        'grey': 'Nicht bereit'
+      },
+      'zustellung': {
+        'green': 'Zugestellt',
+        'yellow': 'ETA heute',
+        'red': 'ETA überschritten',
+        'grey': 'Nicht geplant'
+      }
+    };
+    
+    return statusTexts[type]?.[status] || 'Unbekannt';
+  };
+
+  const getAmpelProgress = (sendung, type) => {
+    // Vereinfacht - basiert nur auf Status
+    const status = getTrafficLightStatus(sendung, type);
+    
+    if (status === 'green') return '✓';
+    if (status === 'yellow') return '!';
+    if (status === 'red') return '⚠';
+    return '○';
   };
 
   // NEUE HELPER-FUNKTIONEN FÜR DIE VERBESSERTE STRUKTUR
@@ -699,146 +392,6 @@ const SendungsTable = ({
     );
   };
 
-  // Datum formatieren - Intelligente Auswahl
-  const getRelevantDate = (sendung) => {
-    // Priorität: pickup_date > delivery_date > estimated_pickup_date > created_at
-    if (sendung.pickup_date) {
-      return {
-        date: formatDate(sendung.pickup_date),
-        type: 'Abholung',
-        raw: sendung.pickup_date,
-        icon: '📦',
-        color: '#10b981'
-      };
-    }
-    if (sendung.delivery_date || sendung.estimated_delivery_date) {
-      const date = sendung.delivery_date || sendung.estimated_delivery_date;
-      return {
-        date: formatDate(date),
-        type: sendung.delivery_date ? 'Zustellung' : 'Geplante Zustellung',
-        raw: date,
-        icon: '🚚',
-        color: '#3b82f6'
-      };
-    }
-    if (sendung.estimated_pickup_date) {
-      return {
-        date: formatDate(sendung.estimated_pickup_date),
-        type: 'Geplante Abholung',
-        raw: sendung.estimated_pickup_date,
-        icon: '📅',
-        color: '#f59e0b'
-      };
-    }
-    if (sendung.created_at) {
-      return {
-        date: formatDate(sendung.created_at),
-        type: 'Erstellt',
-        raw: sendung.created_at,
-        icon: '📝',
-        color: '#6b7280'
-      };
-    }
-    return {
-      date: '-',
-      type: 'Kein Datum',
-      raw: null,
-      icon: '❓',
-      color: '#9ca3af'
-    };
-  };
-
-  // Flugzeiten formatieren
-  const getFlightTimes = (sendung) => {
-    const times = [];
-    
-    // Departure Time (ETD)
-    if (sendung.departure_time || sendung.etd || sendung.flight_departure) {
-      const depTime = sendung.departure_time || sendung.etd || sendung.flight_departure;
-      times.push({
-        type: 'ETD',
-        time: formatDateTime(depTime),
-        raw: depTime,
-        icon: '🛫',
-        color: '#10b981'
-      });
-    }
-    
-    // Arrival Time (ETA)
-    if (sendung.arrival_time || sendung.eta || sendung.flight_arrival) {
-      const arrTime = sendung.arrival_time || sendung.eta || sendung.flight_arrival;
-      times.push({
-        type: 'ETA',
-        time: formatDateTime(arrTime),
-        raw: arrTime,
-        icon: '🛬',
-        color: '#3b82f6'
-      });
-    }
-    
-    // Cut-off Time (Urgent!)
-    if (sendung.cutoff_time || sendung.airline_cutoff) {
-      const cutoffTime = sendung.cutoff_time || sendung.airline_cutoff;
-      times.push({
-        type: 'Cut-off',
-        time: formatDateTime(cutoffTime),
-        raw: cutoffTime,
-        icon: '⏰',
-        color: '#dc2626' // ROT für Dringlichkeit
-      });
-    }
-    
-    return times;
-  };
-
-  // Notizen zusammenfassen
-  const getNotesInfo = (sendung) => {
-    const notes = [];
-    
-    // Verschiedene Notiz-Felder sammeln
-    if (sendung.notes) notes.push({ type: 'Allgemein', text: sendung.notes });
-    if (sendung.special_instructions) notes.push({ type: 'Anweisungen', text: sendung.special_instructions });
-    if (sendung.customer_notes) notes.push({ type: 'Kunde', text: sendung.customer_notes });
-    if (sendung.internal_notes) notes.push({ type: 'Intern', text: sendung.internal_notes });
-    if (sendung.remarks) notes.push({ type: 'Bemerkungen', text: sendung.remarks });
-    
-    const allNotesText = notes.map(n => n.text).filter(text => text && text.trim()).join(' | ');
-    
-    return {
-      hasNotes: allNotesText.length > 0,
-      preview: allNotesText.length > 50 ? allNotesText.substring(0, 50) + '...' : allNotesText,
-      full: allNotesText,
-      count: notes.length,
-      details: notes
-    };
-  };
-
-  // Milestone Info Component (für Details)
-  const getMilestoneInfo = (sendung, type) => {
-    try {
-      const transportType = sendung.transport_type || 'AIR';
-      const importExport = sendung.import_export || 'EXPORT';
-      const milestones = getMilestones(transportType, importExport);
-      
-      const typeMilestones = milestones.filter(m => m.ampel === type);
-      const currentStatus = getTrafficLightStatus(sendung, type);
-      
-      return {
-        milestones: typeMilestones,
-        currentStatus,
-        transportType,
-        importExport
-      };
-    } catch (error) {
-      return {
-        milestones: [],
-        currentStatus: 'grey',
-        transportType: 'AIR',
-        importExport: 'EXPORT'
-      };
-    }
-  };
-
   // SICHERE Customer-Name Funktion
   const getCustomerName = (customerId) => {
     if (!customerId || !customers) return 'Unbekannt';
@@ -860,10 +413,8 @@ const SendungsTable = ({
       }
     }
     
-    return 'Unbekannt';
-  };
-
-  // SICHERE Partner-Name Funktion
+    return '
+    // SICHERE Partner-Name Funktion
   const getPartnerName = (partnerId) => {
     if (!partnerId || !partners) return 'Unbekannt';
     
@@ -1275,25 +826,25 @@ const SendungsTable = ({
               </button>
               
               <button
-  title="Sendung löschen"
-  onClick={(e) => {
-    e.stopPropagation();
-    console.log('🗑️ DELETE BUTTON clicked with sendung:', sendung);
-    onDeleteClick && onDeleteClick(sendung);
-  }}
-  style={{
-    padding: '6px',
-    backgroundColor: 'transparent',
-    color: '#ef4444',
-    border: '1px solid #ef4444',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    lineHeight: '1'
-  }}
->
-  🗑️
-</button>
+                title="Sendung löschen"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('🗑️ DELETE BUTTON clicked with sendung:', sendung);
+                  onDeleteClick && onDeleteClick(sendung);
+                }}
+                style={{
+                  padding: '6px',
+                  backgroundColor: 'transparent',
+                  color: '#ef4444',
+                  border: '1px solid #ef4444',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  lineHeight: '1'
+                }}
+              >
+                🗑️
+              </button>
               
               {/* KOSTEN-STATUS - NUR BEI ANFRAGEN (wieder hinzugefügt!) */}
               {viewMode === 'anfragen' && (
@@ -1407,19 +958,6 @@ const SendungsTable = ({
 
   // SICHERE Array-Behandlung für sendungen
   const safeSendungen = Array.isArray(sendungen) ? sendungen : [];
-
-  // Debug-Ausgabe für Traffic Light System
-  useEffect(() => {
-    if (safeSendungen.length > 0) {
-      const sampleSendung = safeSendungen[0];
-      console.log('🚦 Traffic Light Debug:', {
-        sendung: sampleSendung.position,
-        transportType: sampleSendung.transport_type,
-        importExport: sampleSendung.import_export,
-        status: sampleSendung.status
-      });
-    }
-  }, [safeSendungen]);
 
   // Main Render
   return (

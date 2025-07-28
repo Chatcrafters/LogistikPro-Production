@@ -23,6 +23,179 @@ export const useSendungsData = () => {
     sendungen: sendungen.filter(s => s.status !== 'ANFRAGE' && s.status !== 'ANGEBOT').length
   };
 
+  // ========================================
+  // 🚦 NEUE KRITIKALITÄTS-BASIERTE AMPEL-BERECHNUNG
+  // ========================================
+  
+  /**
+   * Berechnet Ampel-Status basierend auf Cut-off Time und Flug-Daten
+   * @param {Object} sendung - Sendungsobjekt mit Flug-Daten
+   * @param {string} ampelType - 'abholung', 'carrier', 'zustellung'
+   * @returns {string} - 'green', 'yellow', 'red', 'grey'
+   */
+  const calculateCriticalityBasedAmpel = (sendung, ampelType) => {
+    console.log(`🚦 Kritikalitäts-Check für ${sendung.position} - ${ampelType}:`, {
+      cutoff_time: sendung.cutoff_time,
+      pickup_date: sendung.pickup_date,
+      awb_number: sendung.awb_number,
+      delivery_date: sendung.delivery_date,
+      etd: sendung.etd,
+      eta: sendung.eta,
+      flight_status: sendung.flight_status
+    });
+
+    const now = new Date();
+    
+    switch(ampelType) {
+      case 'abholung':
+        // GRÜN: Sendung bereits abgeholt
+        if (sendung.pickup_date && sendung.pickup_date !== null) {
+          console.log(`🟢 ABHOLUNG GRÜN: Bereits abgeholt (${sendung.pickup_date})`);
+          return 'green';
+        }
+        
+        // Cut-off basierte Kritikalität
+        if (sendung.cutoff_time) {
+          const cutoff = new Date(sendung.cutoff_time);
+          const hoursUntilCutoff = (cutoff - now) / (1000 * 60 * 60);
+          
+          console.log(`⏰ Cut-off in ${hoursUntilCutoff.toFixed(1)} Stunden`);
+          
+          // ROT: Cut-off bereits verpasst
+          if (hoursUntilCutoff < 0) {
+            console.log(`🔴 ABHOLUNG ROT: Cut-off verpasst! (${Math.abs(hoursUntilCutoff).toFixed(1)}h zu spät)`);
+            return 'red';
+          }
+          
+          // GELB: Weniger als 2 Stunden bis Cut-off
+          if (hoursUntilCutoff <= 2) {
+            console.log(`🟡 ABHOLUNG GELB: Kritisch! Nur noch ${hoursUntilCutoff.toFixed(1)}h bis Cut-off`);
+            return 'yellow';
+          }
+          
+          // GRÜN: Genug Zeit bis Cut-off
+          console.log(`🟢 ABHOLUNG GRÜN: Noch ${hoursUntilCutoff.toFixed(1)}h Zeit`);
+          return 'green';
+        }
+        
+        // Fallback: Status-basiert
+        if (sendung.status === 'created' || sendung.status === 'booked') {
+          return 'green';
+        }
+        
+        console.log(`⚪ ABHOLUNG GRAU: Keine Cut-off Zeit gesetzt`);
+        return 'grey';
+
+      case 'carrier':
+        // GRÜN: In Transit oder tatsächlich abgeflogen
+        if (sendung.status === 'in_transit' || sendung.atd || sendung.departed_at) {
+          console.log(`🟢 CARRIER GRÜN: In Transit / Abgeflogen`);
+          return 'green';
+        }
+        
+        // ROT: Flug gecancelt
+        if (sendung.flight_status === 'cancelled') {
+          console.log(`🔴 CARRIER ROT: Flug gecancelt!`);
+          return 'red';
+        }
+        
+        // ETD basierte Kritikalität
+        if (sendung.etd) {
+          const etd = new Date(sendung.etd);
+          const hoursUntilETD = (etd - now) / (1000 * 60 * 60);
+          
+          console.log(`✈️ ETD in ${hoursUntilETD.toFixed(1)} Stunden`);
+          
+          // ROT: Flug sollte bereits weg sein, ist aber noch nicht
+          if (hoursUntilETD < -2 && !sendung.atd) {
+            console.log(`🔴 CARRIER ROT: Flug ${Math.abs(hoursUntilETD).toFixed(1)}h verspätet!`);
+            return 'red';
+          }
+          
+          // GELB: Flug bald oder verspätet
+          if (hoursUntilETD <= 4 && hoursUntilETD > -2) {
+            console.log(`🟡 CARRIER GELB: Flug in ${hoursUntilETD.toFixed(1)}h`);
+            return 'yellow';
+          }
+        }
+        
+        // GELB: AWB vorhanden, bereit für Transport
+        if (sendung.awb_number && sendung.awb_number !== '') {
+          console.log(`🟡 CARRIER GELB: AWB vorhanden (${sendung.awb_number})`);
+          return 'yellow';
+        }
+        
+        // GRÜN: Abgeholt, bereit für AWB
+        if (sendung.pickup_date) {
+          console.log(`🟢 CARRIER GRÜN: Abgeholt, bereit für AWB`);
+          return 'green';
+        }
+        
+        console.log(`⚪ CARRIER GRAU: Noch nicht bereit`);
+        return 'grey';
+
+      case 'zustellung':
+        // GRÜN: Bereits zugestellt
+        if (sendung.delivery_date || sendung.actual_delivery_date || sendung.status === 'zugestellt') {
+          console.log(`🟢 ZUSTELLUNG GRÜN: Zugestellt`);
+          return 'green';
+        }
+        
+        // ETA basierte Kritikalität
+        if (sendung.eta) {
+          const eta = new Date(sendung.eta);
+          const hoursUntilETA = (eta - now) / (1000 * 60 * 60);
+          
+          console.log(`🛬 ETA in ${hoursUntilETA.toFixed(1)} Stunden`);
+          
+          // ROT: ETA überschritten, aber noch nicht zugestellt
+          if (hoursUntilETA < -24) {
+            console.log(`🔴 ZUSTELLUNG ROT: ETA ${Math.abs(hoursUntilETA / 24).toFixed(1)} Tage überschritten!`);
+            return 'red';
+          }
+          
+          // GELB: ETA heute oder gestern
+          if (hoursUntilETA <= 24 && hoursUntilETA > -24) {
+            console.log(`🟡 ZUSTELLUNG GELB: ETA heute/gestern`);
+            return 'yellow';
+          }
+        }
+        
+        // GRÜN: In Transit, ETA in Zukunft
+        if (sendung.status === 'in_transit' || sendung.atd) {
+          console.log(`🟢 ZUSTELLUNG GRÜN: In Transit`);
+          return 'green';
+        }
+        
+        console.log(`⚪ ZUSTELLUNG GRAU: Noch nicht in Transit`);
+        return 'grey';
+
+      default:
+        return 'grey';
+    }
+  };
+
+  /**
+   * Berechnet alle Traffic Light Status für eine Sendung
+   * @param {Object} sendung - Sendungsobjekt
+   * @returns {Object} - { abholung: 'green', carrier: 'yellow', zustellung: 'grey' }
+   */
+  const calculateTrafficLightsFromMilestones = (sendung) => {
+    if (!sendung || !sendung.id) {
+      return { abholung: 'grey', carrier: 'grey', zustellung: 'grey' };
+    }
+
+    const trafficLights = {
+      abholung: calculateCriticalityBasedAmpel(sendung, 'abholung'),
+      carrier: calculateCriticalityBasedAmpel(sendung, 'carrier'),
+      zustellung: calculateCriticalityBasedAmpel(sendung, 'zustellung')
+    };
+
+    console.log(`🚦 Traffic Lights für ${sendung.position}:`, trafficLights);
+    
+    return trafficLights;
+  };
+
   // ============== LOAD ALL DATA ==============
   const loadAllData = useCallback(async () => {
     setLoading(true);
@@ -125,9 +298,8 @@ export const useSendungsData = () => {
           const key = getTransportKey(transportType, importExport);
           const definitions = getMilestones(transportType, importExport);
           
-          // Traffic lights berechnen (alle Milestones für diese Sendung)
-          const completedMilestoneIds = shipmentMilestones.map(m => m.milestone_id || m.id);
-          const lights = calculateTrafficLightStatus(definitions, completedMilestoneIds);
+          // ✅ NEUE KRITIKALITÄTS-BASIERTE TRAFFIC LIGHTS
+          const lights = calculateTrafficLightsFromMilestones(sendung);
           
           trafficLightData[sendung.id] = {
             abholung: lights.abholung,
