@@ -1,5 +1,4 @@
 // backend/server.js
-
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
@@ -8,6 +7,20 @@ const path = require('path');
 // Express App initialisieren
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// CORS für Frontend konfigurieren
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// Zusätzlicher CORS-Handler für OPTIONS requests
+app.options('*', cors());
+
+// JSON Body Parser
+app.use(express.json());
 
 // Milestone-Definitionen importieren
 const { getMilestones } = require('./milestoneDefinitions');
@@ -63,6 +76,103 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Root-Route
 app.get('/', (req, res) => {
   res.send('LogistikPro Backend läuft');
+});
+
+// Get single shipment  
+app.get('/api/shipments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data, error } = await supabase
+      .from('shipments')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching shipment:', error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'Sendung nicht gefunden' });
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('Server error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Update shipment milestone
+app.put('/api/shipments/:id/milestone', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { milestone } = req.body;
+
+    console.log(`🎯 Milestone Update: Sendung ${id} → Milestone ${milestone}`);
+
+    // Validierung
+    if (milestone < 0 || milestone > 10) {
+      return res.status(400).json({ 
+        error: 'Milestone muss zwischen 0 und 10 liegen',
+        success: false 
+      });
+    }
+
+    // Update in Datenbank
+    const { data, error } = await supabase
+      .from('shipments')
+      .update({ 
+        current_milestone: milestone,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Supabase Milestone Update Fehler:', error);
+      return res.status(500).json({ 
+        error: 'Datenbankfehler beim Milestone-Update',
+        success: false 
+      });
+    }
+
+    // History-Eintrag erstellen (optional)
+    const historyEntry = {
+      shipment_id: id,
+      action: 'milestone_update',
+      details: `Milestone geändert auf ${milestone}`,
+      created_at: new Date().toISOString()
+    };
+
+    // History speichern (ignoriert Fehler wenn Tabelle nicht existiert)
+    try {
+      await supabase
+        .from('shipment_history')
+        .insert([historyEntry]);
+    } catch (historyError) {
+      console.warn('⚠️ History konnte nicht gespeichert werden:', historyError);
+      // Ignorieren - nicht kritisch
+    }
+
+    console.log('✅ Milestone erfolgreich aktualisiert:', data);
+    
+    res.json({ 
+      success: true, 
+      data: data,
+      message: `Milestone auf ${milestone} aktualisiert`
+    });
+
+  } catch (error) {
+    console.error('❌ Milestone Update Fehler:', error);
+    res.status(500).json({ 
+      error: 'Server-Fehler beim Milestone-Update',
+      success: false 
+    });
+  }
 });
 
 // --- CUSTOMER ROUTES ---
@@ -185,7 +295,9 @@ app.put('/api/customers/:id', async (req, res) => {
 app.delete('/api/customers/:id', async (req, res) => {
   const { id } = req.params;
 
-  try {
+    try {
+    const { id } = req.params;
+    
     const { error } = await supabase
       .from('customers')
       .delete()
@@ -195,13 +307,12 @@ app.delete('/api/customers/:id', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ message: 'Kunde erfolgreich gelöscht' });
+    res.json({ success: true, message: 'Kunde erfolgreich gelöscht' });
   } catch (err) {
-    res.status(500).json({ error: 'Interner Serverfehler' });
+    console.error('Fehler beim Löschen des Kunden:', err);
+    res.status(500).json({ error: 'Serverfehler' });
   }
 });
-
-// --- CONTACT ROUTES ---
 
 // POST /api/contacts - Ansprechpartner erstellen
 app.post('/api/contacts', async (req, res) => {
@@ -1607,45 +1718,7 @@ app.post('/api/quotations/:id/send-request', async (req, res) => {
   }
 });
 
-// PUT /api/shipments/:id/costs - Kosten für eine Sendung aktualisieren (Alias für POST)
-app.put('/api/shipments/:id/costs', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { pickup_cost, main_cost, delivery_cost, total_cost } = req.body;
-    
-    console.log('=== KOSTEN UPDATE ===');
-    console.log('Sendung ID:', id);
-    console.log('Kosten:', req.body);
-    
-    const { data, error } = await supabase
-      .from('shipments')
-      .update({
-        pickup_cost: pickup_cost || 0,
-        main_cost: main_cost || 0,
-        delivery_cost: delivery_cost || 0,
-        cost_pickup: pickup_cost || 0,  // Doppelte Felder für Kompatibilität
-        cost_mainrun: main_cost || 0,
-        cost_delivery: delivery_cost || 0,
-        total_cost: total_cost || 0,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    
-    if (error) {
-      console.error('Supabase Error:', error);
-      throw error;
-    }
-    
-    console.log('Update erfolgreich:', data);
-    res.json(data);
-    
-  } catch (error) {
-    console.error('Fehler beim Speichern der Kosten:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
+
 // --- AIRPORT ROUTES ---
 
 // GET /api/airports - Flughäfen abrufen
@@ -2166,5 +2239,7 @@ Ihr LogistikPro Team
 
 // Server starten
 app.listen(PORT, () => {
-  console.log(`Server läuft auf http://localhost:${PORT}`);
+  console.log(`✅ LogistikPro Backend läuft auf Port ${PORT}`);
+  console.log(`📊 API verfügbar unter: http://localhost:${PORT}/api`);
 });
+

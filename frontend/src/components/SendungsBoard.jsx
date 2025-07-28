@@ -29,7 +29,7 @@ const SendungsBoard = ({ user }) => {
     deleteSendung,
   } = useSendungsData();
 
-  // ===============================================================
+// ===============================================================
 //  2. UI-STATE MANAGEMENT (Zustand der Ansicht)
 // ===============================================================
 const [viewMode, setViewMode] = useState('sendungen');
@@ -38,12 +38,15 @@ const [selectedSendung, setSelectedSendung] = useState(null);
 const [showNeueSendung, setShowNeueSendung] = useState(false);
 const [showCostInput, setShowCostInput] = useState(false);
 const [costInputSendung, setCostInputSendung] = useState(null);
-// States für das Milestone-Modal
+// States für das Traffic Light System
 const [showTrafficLightModal, setShowTrafficLightModal] = useState(false);
 const [trafficLightData, setTrafficLightData] = useState(null);
 const trafficLightRef = useRef(null);
 const [showCreateOffer, setShowCreateOffer] = useState(false);
 const [createOfferSendung, setCreateOfferSendung] = useState(null);
+// Milestone Dropdown States (nur für E-Mail-Partner)
+const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
+
 
   // ===============================================================
   //  3. DATENFILTERUNG
@@ -107,11 +110,155 @@ const [createOfferSendung, setCreateOfferSendung] = useState(null);
     console.log('Reject offer for:', sendung.position);
     // TODO: Reject Offer Logic
   };
-
   const handleCostInputClick = (sendung) => {
-  console.log('Cost input for:', sendung.position);
-  setCostInputSendung(sendung);
-  setShowCostInput(true);
+    console.log('Cost input for:', sendung.position);
+    setCostInputSendung(sendung);
+    setShowCostInput(true);
+  };
+
+  // Milestone Dropdown Handler (wie in Referenz)
+  const handleMilestoneClick = (event, sendung, ampelType) => {
+    event.stopPropagation();
+    console.log('🎯 Milestone dropdown clicked:', sendung.position, ampelType);
+    
+    const popup = document.getElementById('milestonePopup');
+    const optionsDiv = document.getElementById('milestoneOptions');
+    
+    // Position des Popups
+    popup.style.left = event.pageX + 'px';
+    popup.style.top = event.pageY + 'px';
+    popup.style.display = 'block';
+    
+    // Milestone-Optionen für den Ampel-Typ
+    const milestoneOptionen = getMilestoneOptionen(ampelType);
+    const currentMilestone = sendung.current_milestone || 0;
+    
+    optionsDiv.innerHTML = milestoneOptionen.map(opt => `
+      <div class="status-option ${isCurrentMilestone(opt.value, currentMilestone, ampelType) ? 'active' : ''}" 
+           onclick="updateMilestone(${sendung.id}, ${opt.value})"
+           style="padding: 10px 16px; cursor: pointer; display: flex; align-items: center; font-size: 14px; transition: background-color 0.2s;"
+           onmouseover="this.style.backgroundColor='#f5f5f7'"
+           onmouseout="this.style.backgroundColor='white'">
+        <span style="margin-right: 8px;">${opt.value <= currentMilestone ? '✅' : '⭕'}</span>
+        ${opt.text}
+      </div>
+    `).join('');
+    
+    // Partner-Info für E-Mail speichern
+    setSelectedMilestoneSendung(sendung);
+    window.currentMilestoneType = ampelType;
+  };
+
+  // Milestone-Optionen für jede Ampel (wie in Referenz)
+  const getMilestoneOptionen = (ampelType) => {
+    const optionen = {
+      abholung: [
+        { value: 1, text: 'Abholung beauftragt' },
+        { value: 2, text: 'Sendung abgeholt' },
+        { value: 3, text: 'Anlieferung im Lager' }
+      ],
+      carrier: [
+        { value: 4, text: 'Sendung gebucht' },
+        { value: 5, text: 'Zoll erledigt' },
+        { value: 6, text: 'Anlieferung bei Airline' },
+        { value: 7, text: 'Sendung abgeflogen' },
+        { value: 8, text: 'Sendung angekommen' }
+      ],
+      zustellung: [
+        { value: 9, text: 'Sendung verzollt' },
+        { value: 10, text: 'Sendung zugestellt' }
+      ]
+    };
+    return optionen[ampelType] || [];
+  };
+
+  // Prüfen ob Milestone aktuell aktiv ist
+  const isCurrentMilestone = (milestoneValue, currentMilestone, ampelType) => {
+    if (ampelType === 'abholung') return currentMilestone >= 1 && currentMilestone <= 3 && milestoneValue === currentMilestone;
+    if (ampelType === 'carrier') return currentMilestone >= 4 && currentMilestone <= 8 && milestoneValue === currentMilestone;
+    if (ampelType === 'zustellung') return currentMilestone >= 9 && currentMilestone <= 10 && milestoneValue === currentMilestone;
+    return false;
+  };
+
+  // Milestone Update (wie in Referenz)
+  window.updateMilestone = async (sendungId, newMilestone) => {
+    console.log(`🎯 Milestone Update: Sendung ${sendungId} → Milestone ${newMilestone}`);
+    
+    try {
+      const response = await fetch(`http://localhost:3001/api/shipments/${sendungId}/milestone`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ milestone: newMilestone })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.log('✅ Milestone Update erfolgreich');
+      
+      // Popup schließen
+      document.getElementById('milestonePopup').style.display = 'none';
+      
+      // Seite neu laden um aktuelle Daten zu zeigen
+      window.location.reload();
+
+    } catch (error) {
+      console.error('❌ Fehler beim Milestone-Update:', error);
+      alert('Fehler beim Milestone-Update: ' + error.message);
+    }
+  };
+
+  // Partner E-Mail (wie in Referenz)
+  const emailPartner = () => {
+    if (selectedMilestoneSendung && window.currentMilestoneType) {
+      const subject = 'Status Update Request - Sendung ' + selectedMilestoneSendung.position;
+      const body = 'Sehr geehrte Damen und Herren,%0A%0ABitte um Status-Update für die Sendung ' + selectedMilestoneSendung.position + '.%0A%0AMit freundlichen Grüßen';
+      
+      // Partner-E-Mail basierend auf Ampel-Typ
+      let partnerEmail = 'info@logistikpro.de'; // Fallback
+      if (window.currentMilestoneType === 'abholung') partnerEmail = selectedMilestoneSendung.pickup_partner_email || partnerEmail;
+      if (window.currentMilestoneType === 'carrier') partnerEmail = selectedMilestoneSendung.main_partner_email || partnerEmail;
+      if (window.currentMilestoneType === 'zustellung') partnerEmail = selectedMilestoneSendung.delivery_partner_email || partnerEmail;
+      
+      window.open(`mailto:${partnerEmail}?subject=${subject}&body=${body}`);
+    }
+    document.getElementById('milestonePopup').style.display = 'none';
+  };
+
+  const handleMilestoneUpdate = async (sendungId, newMilestone) => {
+  try {
+    console.log(`🎯 Updating milestone for ${sendungId} to ${newMilestone}`);
+    
+    const response = await fetch(`http://localhost:3001/api/shipments/${sendungId}/milestone`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ milestone: newMilestone })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Milestone Update erfolgreich:', result);
+
+    // Modal schließen
+    setShowMilestoneModal(false);
+    setSelectedMilestoneSendung(null);
+    
+    // Seite neu laden um aktuelle Daten zu zeigen
+    window.location.reload();
+
+  } catch (error) {
+    console.error('❌ Fehler beim Milestone-Update:', error);
+    alert('Fehler beim Milestone-Update: ' + error.message);
+    throw error;
+  }
 };
   
   const handleTrafficLightClick = (event, sendungId, milestoneType, data) => {
@@ -312,6 +459,7 @@ const [createOfferSendung, setCreateOfferSendung] = useState(null);
           onRejectOffer={handleRejectOffer}
           onCostInputClick={handleCostInputClick}
           onStatusMenuClick={handleTrafficLightClick}
+          onMilestoneClick={handleMilestoneClick}
         />
       )}
       {/* Neue Sendung Modal */}
@@ -426,6 +574,49 @@ const [createOfferSendung, setCreateOfferSendung] = useState(null);
     }}
   />
 )}
+
+{/* Milestone Dropdown Popup (wie in Referenz) */}
+<div id="milestonePopup" style={{
+  position: 'absolute',
+  background: 'white',
+  border: '1px solid #d2d2d7',
+  borderRadius: '8px',
+  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+  zIndex: 1000,
+  minWidth: '250px',
+  display: 'none'
+}}>
+  <div style={{
+    padding: '12px 16px',
+    borderBottom: '1px solid #e5e7eb',
+    fontWeight: '600',
+    fontSize: '14px'
+  }}>
+    Milestone aktualisieren
+  </div>
+  <div id="milestoneOptions" style={{
+    maxHeight: '300px',
+    overflowY: 'auto'
+  }}></div>
+  <button
+    onClick={emailPartner}
+    style={{
+      width: '100%',
+      padding: '10px',
+      border: 'none',
+      borderTop: '1px solid #e5e7eb',
+      background: '#f5f5f7',
+      cursor: 'pointer',
+      fontSize: '14px',
+      textAlign: 'left',
+      transition: 'background-color 0.2s'
+    }}
+    onMouseOver={(e) => e.target.style.background = '#e8e8ed'}
+    onMouseOut={(e) => e.target.style.background = '#f5f5f7'}
+  >
+    📧 Partner per E-Mail kontaktieren
+  </button>
+</div>
 
     </div>
   );

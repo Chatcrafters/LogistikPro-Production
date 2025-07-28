@@ -2949,3 +2949,393 @@ frontend/src/
 *Dokumentiert am: 26. Januar 2025*  
 *Nächstes Review: Nach PDF-Generator Implementation*  
 *Status: 🏆 WELTKLASSE FUNDAMENT - BEREIT FÜR PREMIUM-FEATURES*
+
+# 🧠 **LOGISTIKPRO - SOFTWARE BRAIN**
+*Version 3.0 - Stand: 27.07.2025*
+
+## 🎯 **PROJEKT ÜBERSICHT**
+
+**LogistikPro** ist eine webbasierte Speditionssoftware für die Verwaltung von Luftfracht-Sendungen mit vollständigem Workflow von der Anfrage bis zur Zustellung.
+
+### **TECH STACK**
+- **Frontend:** React 18 + Vite
+- **Backend:** Node.js + Express
+- **Datenbank:** Supabase (PostgreSQL)
+- **Deployment:** Vercel
+- **Styling:** Inline Styles (Migration zu CSS Modules geplant)
+
+---
+
+## ✅ **IMPLEMENTIERTE FEATURES (STAND: 27.07.2025)**
+
+### **1. CORE WORKFLOW: ANFRAGE → ANGEBOT → SENDUNG**
+
+#### **1.1 ANFRAGE-PHASE**
+```
+STATUS: ✅ VOLLSTÄNDIG IMPLEMENTIERT
+```
+- **Neue Anfrage erstellen** via `NeueSendungSuper.jsx`
+- **ANF-Nummer** automatisch generiert (Format: ANF-XXXXXX-XXXX)
+- **PartnerKalkulation** Component für Vorlauf/Hauptlauf/Nachlauf
+- **"Als Anfrage speichern"** Button funktioniert
+- **Datenbank-Felder:**
+  - `status: 'ANFRAGE'`
+  - `position: 'ANF-...'`
+  - Partner-IDs und Basis-Infos gespeichert
+
+#### **1.2 KOSTEN-ERFASSUNG**
+```
+STATUS: ✅ IMPLEMENTIERT (27.07.2025)
+```
+- **CostInputModal** (`frontend/src/components/modals/CostInputModal.jsx`)
+- **Manuelle Eingabe** für alle drei Kostenarten
+- **Magic Input** Button mit KI-Parser (Basis-Version)
+- **Partner-Namen** werden korrekt angezeigt
+- **API-Endpoint:** `PUT /api/shipments/:id` (speichert Kosten)
+- **Datenbank-Felder:**
+  - `pickup_cost`, `main_cost`, `delivery_cost`
+  - `cost_pickup`, `cost_mainrun`, `cost_delivery` (Duplikate für Kompatibilität)
+
+#### **1.3 ANGEBOT-ERSTELLUNG**
+```
+STATUS: ✅ IMPLEMENTIERT (27.07.2025)
+```
+- **CreateOfferModal** (`frontend/src/components/modals/CreateOfferModal.jsx`)
+- **Historische Margen** Anzeige (Mock-Daten)
+- **Kalkulation:** Kosten + Marge = Angebotspreis
+- **Flexible Eingabe:** Prozent oder Betrag
+- **Status-Änderung:** ANFRAGE → ANGEBOT
+- **Datenbank-Felder:**
+  - `status: 'ANGEBOT'`
+  - `offer_price`, `offer_profit`, `offer_margin_percent`
+  - `offer_created_at`
+
+#### **1.4 ANGEBOT → SENDUNG**
+```
+STATUS: ✅ IMPLEMENTIERT
+```
+- **"Angebot annehmen"** Button (✅)
+- **SND-Nummer** generiert (Format: SND-YYYY-XXXX)
+- **Status:** ANGEBOT → created
+- **Alte ANF-Nummer** als Order-Referenz gespeichert
+
+### **2. SENDUNGS-VERWALTUNG**
+
+#### **2.1 SENDUNGSBOARD**
+```
+STATUS: ✅ VOLLSTÄNDIG
+DATEI: frontend/src/components/SendungsBoard.jsx
+```
+- **Tab-Navigation:** Sendungen (X) | Anfragen (Y) | Angebote (Z) | Alle (N)
+- **Action Buttons** pro Status:
+  - Anfragen: 💰 (Kosten) | 📄 (Angebot)
+  - Angebote: ✅ (Annehmen) | ❌ (Ablehnen)
+  - Sendungen: 🚚 (Status) | ✈️ (Flug) | 📧 (E-Mail)
+- **Suche** funktioniert
+- **Hooks:** `useSendungsData.js` für Datenmanagement
+
+#### **2.2 TRAFFIC LIGHT SYSTEM**
+```
+STATUS: ✅ BASIS IMPLEMENTIERT
+VERBESSERUNG: 🚧 GEPLANT
+```
+- **10 Milestones** definiert in `milestoneDefinitions.js`
+- **Ampel-Komponente** in `SendungsTable.jsx`
+- **Kritikalitäts-basierte Farben:**
+  - GRÜN: Alles im Zeitplan
+  - GELB: Achtung erforderlich
+  - ROT: Kritisch/Verspätet
+- **TODO:** Ampeln anklickbar machen für Updates
+
+### **3. STAMMDATEN-VERWALTUNG**
+
+#### **3.1 KUNDEN**
+```
+STATUS: ✅ VOLLSTÄNDIG
+```
+- CRUD-Operationen komplett
+- Kontakte pro Kunde
+- Abholadressen mit Zeitfenstern
+- Multi-E-Mail Support
+
+#### **3.2 PARTNER**
+```
+STATUS: ✅ VOLLSTÄNDIG
+```
+- Carrier und Agenten
+- Tarif-System implementiert
+- Zone-basierte Preise
+- API: `/api/partners`
+
+### **4. TECHNISCHE INFRASTRUKTUR**
+
+#### **4.1 BACKEND**
+```
+STATUS: ✅ STABIL
+DATEI: backend/server.js
+```
+- Express Server auf Port 3001
+- Supabase Integration
+- RESTful API Endpoints
+- CORS konfiguriert
+
+#### **4.2 DEPLOYMENT**
+```
+STATUS: ✅ PRODUKTIV (27.07.2025)
+```
+- **GitHub:** Chatcrafters/LogistikPro-Production
+- **Vercel:** Automatisches Deployment via Hook
+- **URL:** logistikpro-lucrdjw20-sergio-s-projects-34d127fd.vercel.app
+- **Build:** Frontend in `/frontend`, Vite-basiert
+
+---
+
+## 🚧 **IN ENTWICKLUNG / GEPLANT**
+
+### **PRIORITÄT 1: MILESTONE SYSTEM ERWEITERN**
+```
+GESCHÄTZT: 1-2 Wochen
+STATUS: 🔴 NICHT BEGONNEN
+```
+**Komponenten zu erstellen:**
+- `MilestoneUpdateModal.jsx` - Klickbare Ampeln
+- `MilestoneHistory.jsx` - Verlaufsanzeige
+- `MilestoneEmailTrigger.js` - E-Mail-Automation
+
+**Features:**
+- Ampeln anklickbar → Modal öffnet sich
+- Partner-spezifische E-Mail-Trigger
+- Automatische Status-Updates
+- Historie in `shipment_history` Tabelle
+- Import/Export unterschiedliche Milestone-Sets
+
+**API Endpoints benötigt:**
+- `PUT /api/shipments/:id/milestone`
+- `GET /api/shipments/:id/milestones`
+- `POST /api/shipments/:id/milestone-email`
+
+### **PRIORITÄT 2: E-MAIL TEMPLATE SYSTEM**
+```
+GESCHÄTZT: 1-2 Wochen
+STATUS: 🔴 NICHT BEGONNEN
+```
+**Template-Typen:**
+1. **Partner-Kommunikation:**
+   - Kosten-Anfrage (pickup/main/delivery)
+   - Status-Update Anfrage
+   - Buchungsbestätigung
+
+2. **Kunden-Kommunikation:**
+   - Angebot (aus CreateOfferModal)
+   - Auftragsbestätigung
+   - Milestone-Benachrichtigungen
+   - Lieferavis
+
+**Geplante Struktur:**
+```
+frontend/src/templates/
+├── partner/
+│   ├── costRequest.js
+│   ├── statusUpdate.js
+│   └── bookingConfirm.js
+└── customer/
+    ├── offer.js
+    ├── orderConfirm.js
+    └── milestoneUpdate.js
+```
+
+### **PRIORITÄT 3: FLUG-INTEGRATION (NUR FÜR SENDUNGEN)**
+```
+GESCHÄTZT: 1 Woche
+STATUS: 🔴 NICHT BEGONNEN
+WICHTIG: Nur nach Angebots-Annahme relevant!
+```
+**Komponenten:**
+- `FlightSearchModal.jsx`
+- `FlightBookingModal.jsx`
+- `AWBEntryModal.jsx` (nur AWB-Nummer eintragen)
+
+**Integration:**
+- WebCargo API für Flugsuche
+- Nur im Sendungen-Tab sichtbar
+- AWB-Nummer manuell eintragen
+- Flight Tracking
+- Fluginformationen speichern
+
+### **PRIORITÄT 4: MAGIC INPUT OPTIMIERUNG**
+```
+GESCHÄTZT: 1 Woche
+STATUS: 🟡 BASIS VORHANDEN
+```
+**Verbesserungen:**
+- PDF-Parser Integration
+- Screenshot-OCR
+- Multi-Währung Support
+- Partner-spezifische Muster
+- Lernfähiger Parser
+
+### **PRIORITÄT 5: CSS REFACTORING**
+```
+GESCHÄTZT: 2 Wochen
+STATUS: 🔴 NICHT BEGONNEN
+```
+**Geplante Struktur:**
+```
+frontend/src/styles/
+├── global/
+│   ├── colors.css
+│   ├── typography.css
+│   └── variables.css
+├── components/
+│   ├── buttons.module.css
+│   ├── modals.module.css
+│   └── tables.module.css
+└── layouts/
+    ├── dashboard.module.css
+    └── forms.module.css
+```
+
+---
+
+## 📊 **DATENBANK-SCHEMA UPDATES**
+
+### **AKTUELLE TABELLEN:**
+- ✅ `shipments` - Haupttabelle
+- ✅ `customers` - Kundenstamm
+- ✅ `partners` - Carrier/Agenten
+- ✅ `shipment_history` - Verlauf
+- ✅ `contacts` - Ansprechpartner
+- ✅ `pickup_addresses` - Abholadressen
+
+### **GEPLANTE ERWEITERUNGEN:**
+- 🔴 `email_templates` - E-Mail Vorlagen
+- 🔴 `milestone_config` - Milestone-Definitionen
+- 🔴 `flight_bookings` - Flugbuchungen
+- 🔴 `documents` - Dokumente/PDFs
+
+---
+
+## 🔌 **API ENDPOINTS ÜBERSICHT**
+
+### **IMPLEMENTIERT:**
+```
+✅ GET    /api/shipments
+✅ POST   /api/shipments
+✅ PUT    /api/shipments/:id
+✅ DELETE /api/shipments/:id
+✅ PUT    /api/shipments/:id/status
+
+✅ GET    /api/customers
+✅ POST   /api/customers
+✅ PUT    /api/customers/:id
+✅ DELETE /api/customers/:id
+
+✅ GET    /api/partners
+✅ POST   /api/partners
+✅ PUT    /api/partners/:id
+✅ DELETE /api/partners/:id
+```
+
+### **GEPLANT:**
+```
+🔴 PUT    /api/shipments/:id/milestone
+🔴 POST   /api/shipments/:id/send-email
+🔴 GET    /api/templates
+🔴 POST   /api/flights/search
+🔴 POST   /api/flights/book
+🔴 GET    /api/documents/:shipmentId
+```
+
+---
+
+## 🎨 **UI/UX KOMPONENTEN STATUS**
+
+### **IMPLEMENTIERTE KOMPONENTEN:**
+- ✅ `SendungsBoard.jsx` - Hauptansicht
+- ✅ `SendungsTable.jsx` - Tabellen-Komponente
+- ✅ `NeueSendungSuper.jsx` - Neue Sendung/Anfrage
+- ✅ `PartnerKalkulation.jsx` - Partner-Auswahl
+- ✅ `CostInputModal.jsx` - Kosten erfassen
+- ✅ `CreateOfferModal.jsx` - Angebot erstellen
+- ✅ `TrafficLight.jsx` - Ampel-System
+
+### **GEPLANTE KOMPONENTEN:**
+- 🔴 `MilestoneUpdateModal.jsx`
+- 🔴 `EmailTemplateEditor.jsx`
+- 🔴 `FlightSearchModal.jsx`
+- 🔴 `AWBEntryModal.jsx`
+- 🔴 `DocumentViewer.jsx`
+- 🔴 `Dashboard.jsx`
+- 🔴 `ReportGenerator.jsx`
+
+---
+
+## 🐛 **BEKANNTE ISSUES**
+
+1. **Magic Input Parser** - Erkennt nur einfache Muster
+2. **Historische Margen** - Zeigt Mock-Daten statt echte
+3. **Traffic Lights** - Nicht anklickbar
+4. **E-Mail Integration** - Noch nicht implementiert
+5. **Inline Styles** - Performance-Impact bei großen Listen
+
+---
+
+## 🚀 **DEPLOYMENT CHECKLIST**
+
+### **VOR JEDEM DEPLOYMENT:**
+- [ ] Backup erstellen
+- [ ] Tests lokal durchführen
+- [ ] Console.logs entfernen
+- [ ] API-URLs prüfen (localhost vs. production)
+- [ ] Git commit mit aussagekräftiger Message
+- [ ] Push zu main branch
+- [ ] Vercel Deployment überwachen
+
+---
+
+## 📈 **ERFOLGS-METRIKEN**
+
+- **Code-Zeilen:** ~15,000
+- **Komponenten:** 25+
+- **API Endpoints:** 20+
+- **Deployment Zeit:** <30 Sekunden
+- **Fertigstellungsgrad:** ~80%
+
+---
+
+## 💡 **NÄCHSTE SCHRITTE FÜR SERGIO**
+
+1. **Milestone System** implementieren (PRIORITÄT 1)
+2. **E-Mail Templates** aufbauen (PRIORITÄT 2)
+3. **Flug-Integration** nur für Sendungen (PRIORITÄT 3)
+4. **Magic Input** verbessern (PRIORITÄT 4)
+5. **CSS Refactoring** (PRIORITÄT 5)
+
+---
+
+## 📋 **PROJEKT-TIMELINE**
+
+### **PHASE 1: CORE FEATURES** ✅ ABGESCHLOSSEN
+- Anfrage-System
+- Kosten-Erfassung
+- Angebots-Erstellung
+- Basis-Workflow
+
+### **PHASE 2: TRACKING & KOMMUNIKATION** 🚧 IN ARBEIT
+- Milestone-System (1-2 Wochen)
+- E-Mail-Templates (1-2 Wochen)
+
+### **PHASE 3: ERWEITERTE FEATURES** 📅 GEPLANT
+- Flug-Integration (1 Woche)
+- Magic Input Optimierung (1 Woche)
+
+### **PHASE 4: POLISH & REFACTORING** 📅 GEPLANT
+- CSS Migration (2 Wochen)
+- Performance-Optimierung
+- Mobile Responsive
+
+**GESCHÄTZTE FERTIGSTELLUNG: 6-8 Wochen**
+
+---
+
+*Letzte Aktualisierung: 27.07.2025 - Nach erfolgreicher Implementation von Kosten-Erfassung und Angebots-Workflow*

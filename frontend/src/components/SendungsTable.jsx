@@ -23,7 +23,8 @@ const SendungsTable = ({
   onAcceptOffer,
   onRejectOffer,
   onCostInputClick,
-  onStatusMenuClick
+  onStatusMenuClick,
+  onMilestoneClick
 }) => {
   // ✅ NEUE SPALTEN-STRUKTUR
   const [visibleColumns, setVisibleColumns] = useState({
@@ -504,36 +505,82 @@ const SendungsTable = ({
       >
         {/* ✅ NEUE SPALTE: ABHOLUNG (Datum + Zeit + ECHTE Traffic Light Ampel) */}
         {visibleColumns.abholung && (
-          <td style={{ padding: '16px 12px', minWidth: '140px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrafficLight 
-                sendung={sendung} 
-                type="abholung" 
-                onTrafficLightClick={onStatusMenuClick}
-              />
-              <div>
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: '#1f2937',
-                  marginBottom: '2px'
-                }}>
-                  {abholungInfo.date}
+          <td style={{ padding: '16px 12px', minWidth: '180px', verticalAlign: 'top' }}>
+            <div>
+              {/* Oberer Bereich mit Ampel und Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <TrafficLight 
+                  sendung={sendung} 
+                  type="abholung" 
+                  onTrafficLightClick={onStatusMenuClick}
+                />
+                <div>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    marginBottom: '2px'
+                  }}>
+                    {abholungInfo.date}
+                  </div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: getTrafficLightStatus(sendung, 'abholung') === 'green' ? '#059669' : 
+                           getTrafficLightStatus(sendung, 'abholung') === 'yellow' ? '#d97706' : '#6b7280',
+                    fontWeight: '500'
+                  }}>
+                    {getAmpelStatusText(sendung, 'abholung')}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: '#9ca3af',
+                    fontWeight: '500'
+                  }}>
+                    {getAmpelProgress(sendung, 'abholung')} - {abholungInfo.type}
+                  </div>
                 </div>
+              </div>
+              
+              {/* Aktuelles Milestone für Ampel 1 (Vorlauf) - DROPDOWN */}
+              <div style={{ 
+                marginTop: '8px', 
+                paddingLeft: '32px',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('🎯 Milestone Dropdown - Ampel 1 (Abholung), Current:', sendung.current_milestone);
+                onMilestoneClick && onMilestoneClick(e, sendung, 'abholung');
+              }}
+              >
                 <div style={{
+                  padding: '4px 8px',
+                  backgroundColor: sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#dcfce7' : '#f3f4f6',
+                  borderRadius: '4px',
                   fontSize: '11px',
-                  color: getTrafficLightStatus(sendung, 'abholung') === 'green' ? '#059669' : 
-                         getTrafficLightStatus(sendung, 'abholung') === 'yellow' ? '#d97706' : '#6b7280',
-                  fontWeight: '500'
-                }}>
-                  {getAmpelStatusText(sendung, 'abholung')}
-                </div>
-                <div style={{
-                  fontSize: '10px',
-                  color: '#9ca3af',
-                  fontWeight: '500'
-                }}>
-                  {getAmpelProgress(sendung, 'abholung')} - {abholungInfo.type}
+                  color: sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#166534' : '#6b7280',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: '1px solid transparent',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = '#9ca3af';
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = 'transparent';
+                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#dcfce7' : '#f3f4f6';
+                }}
+                >
+                  <span>{sendung.current_milestone >= 1 ? '✓' : '○'}</span>
+                  <span>
+                    {sendung.current_milestone === 3 ? 'Anlieferung im Lager' :
+                     sendung.current_milestone === 2 ? 'Sendung abgeholt' :
+                     sendung.current_milestone >= 1 ? 'Abholung beauftragt' :
+                     'Abholung beauftragt'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -604,39 +651,87 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ ERWEITERTE SPALTE: ROUTE (Von → Nach + ECHTE Traffic Light Ampel für Transit) */}
+       {/* ✅ ERWEITERTE SPALTE: ROUTE (Von → Nach + ECHTE Traffic Light Ampel für Transit) */}
         {visibleColumns.route && (
-          <td style={{ padding: '16px 12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div>
-                <div style={{
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  color: '#1f2937',
-                  marginBottom: '2px'
-                }}>
-                  {sendung.origin_airport || sendung.from_airport || 'N/A'} → {sendung.destination_airport || sendung.to_airport || 'N/A'}
+          <td style={{ padding: '16px 12px', minWidth: '220px', verticalAlign: 'top' }}>
+            <div>
+              {/* Oberer Bereich mit Route und Ampel */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <div>
+                  <div style={{
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    color: '#1f2937',
+                    marginBottom: '2px'
+                  }}>
+                    {sendung.origin_airport || sendung.from_airport || 'N/A'} → {sendung.destination_airport || sendung.to_airport || 'N/A'}
+                  </div>
+                  <div style={{ 
+                    fontSize: '12px', 
+                    color: '#6b7280'
+                  }}>
+                    {sendung.sender_city || sendung.from_city || 'Unbekannt'} → {sendung.recipient_city || sendung.to_city || 'Unbekannt'}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: '#9ca3af',
+                    fontWeight: '500'
+                  }}>
+                    {getAmpelProgress(sendung, 'carrier')} - {getAmpelStatusText(sendung, 'carrier')}
+                  </div>
                 </div>
-                <div style={{ 
-                  fontSize: '12px', 
-                  color: '#6b7280'
-                }}>
-                  {sendung.sender_city || sendung.from_city || 'Unbekannt'} → {sendung.recipient_city || sendung.to_city || 'Unbekannt'}
-                </div>
+                {/* ECHTE Traffic Light für Carrier/Transport */}
+                <TrafficLight 
+                  sendung={sendung} 
+                  type="carrier" 
+                  onTrafficLightClick={onStatusMenuClick}
+                />
+              </div>
+              
+              {/* Aktuelles Milestone für Ampel 2 (Hauptlauf) - DROPDOWN */}
+              <div style={{ 
+                marginTop: '8px', 
+                paddingLeft: '8px',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('🎯 Milestone Dropdown - Ampel 2 (Carrier), Current:', sendung.current_milestone);
+                onMilestoneClick && onMilestoneClick(e, sendung, 'carrier');
+              }}
+              >
                 <div style={{
-                  fontSize: '10px',
-                  color: '#9ca3af',
-                  fontWeight: '500'
-                }}>
-                  {getAmpelProgress(sendung, 'carrier')} - {getAmpelStatusText(sendung, 'carrier')}
+                  padding: '4px 8px',
+                  backgroundColor: sendung.current_milestone >= 4 && sendung.current_milestone <= 8 ? '#dcfce7' : '#f3f4f6',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  color: sendung.current_milestone >= 4 && sendung.current_milestone <= 8 ? '#166534' : '#6b7280',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: '1px solid transparent',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = '#9ca3af';
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = 'transparent';
+                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 4 && sendung.current_milestone <= 8 ? '#dcfce7' : '#f3f4f6';
+                }}
+                >
+                  <span>{sendung.current_milestone >= 4 ? '✓' : '○'}</span>
+                  <span>
+                    {sendung.current_milestone === 8 ? 'Sendung angekommen' :
+                     sendung.current_milestone === 7 ? 'Sendung abgeflogen' :
+                     sendung.current_milestone === 6 ? 'Anlieferung bei Airline' :
+                     sendung.current_milestone === 5 ? 'Zoll erledigt' :
+                     sendung.current_milestone >= 4 ? 'Sendung gebucht' :
+                     'Sendung gebucht'}
+                  </span>
                 </div>
               </div>
-              {/* ECHTE Traffic Light für Carrier/Transport */}
-              <TrafficLight 
-                sendung={sendung} 
-                type="carrier" 
-                onTrafficLightClick={onStatusMenuClick}
-              />
             </div>
           </td>
         )}
@@ -738,35 +833,80 @@ const SendungsTable = ({
 
         {/* ✅ NEUE SPALTE: ZUSTELLUNG (Zustelldatum + Empfänger + ECHTE Traffic Light Ampel) */}
         {visibleColumns.zustellung && (
-          <td style={{ padding: '16px 12px', minWidth: '140px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrafficLight 
-                sendung={sendung} 
-                type="zustellung" 
-                onTrafficLightClick={onStatusMenuClick}
-              />
-              <div>
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: '#1f2937',
-                  marginBottom: '2px'
-                }}>
-                  {zustellungInfo.date}
+          <td style={{ padding: '16px 12px', minWidth: '180px', verticalAlign: 'top' }}>
+            <div>
+              {/* Oberer Bereich mit Ampel und Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <TrafficLight 
+                  sendung={sendung} 
+                  type="zustellung" 
+                  onTrafficLightClick={onStatusMenuClick}
+                />
+                <div>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    marginBottom: '2px'
+                  }}>
+                    {zustellungInfo.date}
+                  </div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: getTrafficLightStatus(sendung, 'zustellung') === 'green' ? '#059669' : 
+                           getTrafficLightStatus(sendung, 'zustellung') === 'yellow' ? '#d97706' : '#6b7280',
+                    fontWeight: '500'
+                  }}>
+                    {getAmpelStatusText(sendung, 'zustellung')}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: '#9ca3af'
+                  }}>
+                    {getAmpelProgress(sendung, 'zustellung')} - 📍 {zustellungInfo.empfaenger}
+                  </div>
                 </div>
+              </div>
+              
+              {/* Aktuelles Milestone für Ampel 3 (Nachlauf) - DROPDOWN */}
+              <div style={{ 
+                marginTop: '8px', 
+                paddingLeft: '32px',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('🎯 Milestone Dropdown - Ampel 3 (Zustellung), Current:', sendung.current_milestone);
+                onMilestoneClick && onMilestoneClick(e, sendung, 'zustellung');
+              }}
+              >
                 <div style={{
+                  padding: '4px 8px',
+                  backgroundColor: sendung.current_milestone >= 9 ? '#dcfce7' : '#f3f4f6',
+                  borderRadius: '4px',
                   fontSize: '11px',
-                  color: getTrafficLightStatus(sendung, 'zustellung') === 'green' ? '#059669' : 
-                         getTrafficLightStatus(sendung, 'zustellung') === 'yellow' ? '#d97706' : '#6b7280',
-                  fontWeight: '500'
-                }}>
-                  {getAmpelStatusText(sendung, 'zustellung')}
-                </div>
-                <div style={{
-                  fontSize: '10px',
-                  color: '#9ca3af'
-                }}>
-                  {getAmpelProgress(sendung, 'zustellung')} - 📍 {zustellungInfo.empfaenger}
+                  color: sendung.current_milestone >= 9 ? '#166534' : '#6b7280',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  border: '1px solid transparent',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = '#9ca3af';
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = 'transparent';
+                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 9 ? '#dcfce7' : '#f3f4f6';
+                }}
+                >
+                  <span>{sendung.current_milestone >= 9 ? '✓' : '○'}</span>
+                  <span>
+                    {sendung.current_milestone === 10 ? 'Sendung zugestellt' :
+                     sendung.current_milestone >= 9 ? 'Sendung verzollt' :
+                     'Sendung verzollt'}
+                  </span>
                 </div>
               </div>
             </div>
