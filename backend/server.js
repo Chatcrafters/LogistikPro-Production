@@ -1607,6 +1607,45 @@ app.post('/api/quotations/:id/send-request', async (req, res) => {
   }
 });
 
+// PUT /api/shipments/:id/costs - Kosten für eine Sendung aktualisieren (Alias für POST)
+app.put('/api/shipments/:id/costs', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { pickup_cost, main_cost, delivery_cost, total_cost } = req.body;
+    
+    console.log('=== KOSTEN UPDATE ===');
+    console.log('Sendung ID:', id);
+    console.log('Kosten:', req.body);
+    
+    const { data, error } = await supabase
+      .from('shipments')
+      .update({
+        pickup_cost: pickup_cost || 0,
+        main_cost: main_cost || 0,
+        delivery_cost: delivery_cost || 0,
+        cost_pickup: pickup_cost || 0,  // Doppelte Felder für Kompatibilität
+        cost_mainrun: main_cost || 0,
+        cost_delivery: delivery_cost || 0,
+        total_cost: total_cost || 0,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Supabase Error:', error);
+      throw error;
+    }
+    
+    console.log('Update erfolgreich:', data);
+    res.json(data);
+    
+  } catch (error) {
+    console.error('Fehler beim Speichern der Kosten:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 // --- AIRPORT ROUTES ---
 
 // GET /api/airports - Flughäfen abrufen

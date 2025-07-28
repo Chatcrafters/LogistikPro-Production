@@ -1053,35 +1053,43 @@ pickup_cost: (() => {
     }
     
     // WICHTIG: Erstelle das komplette Shipment-Objekt mit allen notwendigen Feldern
-    const completeShipmentData = {
-      // Kunde und Basis-Infos
-      customer_id: sendungData.kunde_id || sendungData.customer_id, // ID, nicht Name!
-      reference: sendungData.referenz,
-      import_export: sendungData.importExport,
-      transport_type: sendungData.transportArt === 'luftfracht' ? 'AIR' : 
-                      sendungData.transportArt === 'seefracht' ? 'SEA' : 'TRUCK',
-      
-      // Flughäfen/Orte - WICHTIG: Alle Varianten für Kompatibilität
-      from_airport: sendungData.vonFlughafen,
-      to_airport: sendungData.nachFlughafen,
-      origin_airport: sendungData.vonFlughafen,
-      destination_airport: sendungData.nachFlughafen,
-      
-      // Städte
-      from_city: sendungData.from_city || sendungData.abholort?.split(',')[1]?.trim() || 'N/A',
-      to_city: sendungData.empfaenger?.ort || sendungData.to_city || 'N/A',
-      
-      // Abholung
-      pickup_date: sendungData.abholDatum,
-      pickup_address_id: sendungData.abholAdresseId || sendungData.abholort_id,
-      
-      // Partner
-      pickup_partner_id: partners.abholung,
-      mainrun_partner_id: partners.hauptlauf,
-      delivery_partner_id: partners.zustellung,
-      
-      // Kosten
-      cost_pickup: kosten.abholung.betrag || 0,
+      const completeShipmentData = {
+        // Kunde und Basis-Infos
+        customer_id: sendungData.kunde_id || sendungData.customer_id, // ID, nicht Name!   
+        reference: sendungData.referenz,
+        import_export: sendungData.importExport,
+        transport_type: sendungData.transportArt === 'luftfracht' ? 'AIR' :
+                        sendungData.transportArt === 'seefracht' ? 'SEA' : 'TRUCK',        
+
+        // FlughÃ¤fen/Orte - WICHTIG: Alle Varianten fÃ¼r KompatibilitÃ¤t
+        from_airport: sendungData.vonFlughafen,
+        to_airport: sendungData.nachFlughafen,
+        origin_airport: sendungData.vonFlughafen,
+        destination_airport: sendungData.nachFlughafen,
+
+        // StÃ¤dte
+        from_city: sendungData.from_city || sendungData.abholort?.split(',')[1]?.trim()    
+|| 'N/A',
+        to_city: sendungData.empfaenger?.ort || sendungData.to_city || 'N/A',
+
+        // Abholung
+        pickup_date: sendungData.abholDatum,
+        pickup_address_id: sendungData.abholAdresseId || sendungData.abholort_id,
+
+        // Partner IDs
+        pickup_partner_id: partners.abholung,
+        mainrun_partner_id: partners.hauptlauf,
+        delivery_partner_id: partners.zustellung,
+        
+        // NEU: Partner-Namen für Cost Input Modal
+        pickup_partner_name: availablePartners.find(p => p.id === partners.abholung)?.name || 'Partner',
+        mainrun_partner_name: availablePartners.find(p => p.id === partners.hauptlauf)?.name || 'Hauptlauf',
+        delivery_partner_name: availablePartners.find(p => p.id === partners.zustellung)?.name || 'Zustellung',
+
+        // Kosten
+        cost_pickup: kosten.abholung.betrag || 0,
+        mainrun_cost: kosten.hauptlauf.betrag || 0,
+        delivery_cost: kosten.zustellung.betrag || 0,
       cost_mainrun: kosten.hauptlauf.betrag || 0,
       cost_delivery: kosten.zustellung.betrag || 0,
       selling_price: vkKalkulation.gewaehlterVK || 0,

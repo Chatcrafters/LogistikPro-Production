@@ -412,9 +412,9 @@ const SendungsTable = ({
         return customer;
       }
     }
+  };
     
-    return '
-    // SICHERE Partner-Name Funktion
+  // SICHERE Partner-Name Funktion
   const getPartnerName = (partnerId) => {
     if (!partnerId || !partners) return 'Unbekannt';
     
@@ -423,7 +423,7 @@ const SendungsTable = ({
       return partner?.name || 'Unbekannt';
     }
     
-    if (typeof partners === 'object') {
+    if (partners && typeof partners === 'object') {
       const partner = partners[partnerId];
       if (partner && typeof partner === 'object') {
         return partner.name || 'Unbekannt';
