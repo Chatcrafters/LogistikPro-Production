@@ -8,7 +8,7 @@ const MilestoneHistory = ({ isOpen, onClose, sendung }) => {
   const [error, setError] = useState(null);
   const [filterType, setFilterType] = useState('all'); // all, milestones, status, emails
 
-  // Milestone-Definitionen
+  // Milestone-Definitionen (synchronized with SendungsBoard)
   const milestoneDefinitions = {
     0: { text: "Nicht begonnen", color: "#9ca3af", category: "start" },
     1: { text: "Abholung beauftragt", color: "#f59e0b", category: "abholung" },
@@ -21,6 +21,21 @@ const MilestoneHistory = ({ isOpen, onClose, sendung }) => {
     8: { text: "Sendung angekommen", color: "#10b981", category: "carrier" },
     9: { text: "Sendung verzollt", color: "#f59e0b", category: "zustellung" },
     10: { text: "Sendung zugestellt", color: "#10b981", category: "zustellung" }
+  };
+
+  // Helper function to get milestone text from history entry
+  const getMilestoneTextFromEntry = (entry) => {
+    if (entry.milestone_id && milestoneDefinitions[entry.milestone_id]) {
+      return milestoneDefinitions[entry.milestone_id].text;
+    }
+    
+    // Parse from details if available
+    if (entry.details && entry.details.includes('Status geändert zu:')) {
+      const match = entry.details.match(/Status geändert zu: (.+?) \(/);
+      if (match) return match[1];
+    }
+    
+    return `Milestone ${entry.milestone_id || '?'}`;
   };
 
   // Historie laden

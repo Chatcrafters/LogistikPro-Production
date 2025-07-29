@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Package, User, MapPin, Edit, Trash2, Euro, Circle, Clock, Calendar, 
-  FileText, Plane, MessageSquare, AlertCircle, Eye, EyeOff
+  FileText, Plane, MessageSquare, AlertCircle, Eye, EyeOff, History
 } from 'lucide-react';
 
 // ✅ KORREKTE IMPORTS VON EXISTIERENDEN DATEIEN
@@ -24,7 +24,8 @@ const SendungsTable = ({
   onRejectOffer,
   onCostInputClick,
   onStatusMenuClick,
-  onMilestoneClick
+  onMilestoneClick,
+  onShowHistory
 }) => {
   // ✅ NEUE SPALTEN-STRUKTUR
   const [visibleColumns, setVisibleColumns] = useState({
@@ -984,6 +985,27 @@ const SendungsTable = ({
                 }}
               >
                 🗑️
+              </button>
+
+              <button
+                title="Milestone-Historie anzeigen"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('📊 HISTORY BUTTON clicked with sendung:', sendung);
+                  onShowHistory && onShowHistory(sendung);
+                }}
+                style={{
+                  padding: '6px',
+                  backgroundColor: 'transparent',
+                  color: '#6b7280',
+                  border: '1px solid #6b7280',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  lineHeight: '1'
+                }}
+              >
+                📊
               </button>
               
               {/* KOSTEN-STATUS - NUR BEI ANFRAGEN (wieder hinzugefügt!) */}
