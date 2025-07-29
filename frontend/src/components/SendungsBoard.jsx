@@ -2,11 +2,12 @@
 // ✅ FINALE, KOMPLETT NEU GESCHRIEBENE VERSION (V7.0)
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Package, FileQuestion, FileText, BarChart3, Plus } from 'lucide-react';
+import { Search, Package, FileQuestion, FileText, BarChart3, Plus, History } from 'lucide-react';
 
 // Module und Komponenten importieren
 import CreateOfferModal from './modals/CreateOfferModal';
 import CostInputModal from './modals/CostInputModal';
+import MilestoneHistory from './modals/MilestoneHistory';
 import costParser from '../utils/costParser';
 const { processMagicInput } = costParser;
 import { useSendungsData } from '../hooks/useSendungsData';
@@ -46,6 +47,9 @@ const [showCreateOffer, setShowCreateOffer] = useState(false);
 const [createOfferSendung, setCreateOfferSendung] = useState(null);
 // Milestone Dropdown States (nur für E-Mail-Partner)
 const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
+// Milestone History States
+const [showMilestoneHistory, setShowMilestoneHistory] = useState(false);
+const [historySelectedSendung, setHistorySelectedSendung] = useState(null);
 
 
   // ===============================================================
@@ -114,6 +118,13 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
     console.log('Cost input for:', sendung.position);
     setCostInputSendung(sendung);
     setShowCostInput(true);
+  };
+
+  // History Modal Handler
+  const handleShowHistory = (sendung) => {
+    console.log('📊 Opening History for:', sendung.position);
+    setHistorySelectedSendung(sendung);
+    setShowMilestoneHistory(true);
   };
 
   // Milestone Dropdown Handler (wie in Referenz)
@@ -460,6 +471,7 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
           onCostInputClick={handleCostInputClick}
           onStatusMenuClick={handleTrafficLightClick}
           onMilestoneClick={handleMilestoneClick}
+          onShowHistory={handleShowHistory}
         />
       )}
       {/* Neue Sendung Modal */}
@@ -617,6 +629,18 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
     📧 Partner per E-Mail kontaktieren
   </button>
 </div>
+
+{/* Milestone History Modal */}
+{showMilestoneHistory && historySelectedSendung && (
+  <MilestoneHistory
+    isOpen={showMilestoneHistory}
+    onClose={() => {
+      setShowMilestoneHistory(false);
+      setHistorySelectedSendung(null);
+    }}
+    sendung={historySelectedSendung}
+  />
+)}
 
     </div>
   );

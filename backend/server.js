@@ -69,7 +69,7 @@ app.use((req, res, next) => {
 // Statische Dateien aus dem Ordner 'public' bereitstellen
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Middleware
+// Middleware (CORS bereits oben konfiguriert)
 app.use(express.json());
 
 // Supabase-Client konfigurieren
