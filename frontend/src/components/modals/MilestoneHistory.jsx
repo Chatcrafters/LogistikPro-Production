@@ -25,11 +25,24 @@ const MilestoneHistory = ({ isOpen, onClose, sendung }) => {
 
   // Helper function to get milestone text from history entry
   const getMilestoneTextFromEntry = (entry) => {
+    // Zuerst: Schaue ob milestone_id direkt vorhanden ist
     if (entry.milestone_id && milestoneDefinitions[entry.milestone_id]) {
       return milestoneDefinitions[entry.milestone_id].text;
     }
     
-    // Parse from details if available
+    // Dann: Parse aus details wenn milestone_update
+    if (entry.action === 'milestone_update' && entry.details) {
+      // Extrahiere Nummer aus "Milestone geändert auf 3"
+      const match = entry.details.match(/Milestone geändert auf (\d+)/);
+      if (match) {
+        const milestoneId = parseInt(match[1]);
+        if (milestoneDefinitions[milestoneId]) {
+          return milestoneDefinitions[milestoneId].text;
+        }
+      }
+    }
+    
+    // Parse from details if available (alte Variante)
     if (entry.details && entry.details.includes('Status geändert zu:')) {
       const match = entry.details.match(/Status geändert zu: (.+?) \(/);
       if (match) return match[1];
@@ -413,10 +426,10 @@ const MilestoneHistory = ({ isOpen, onClose, sendung }) => {
                             fontSize: '14px',
                             color: '#1f2937'
                           }}>
-                            {entry.action}
-                            {entry.milestone_id && (
+                            {entry.action === 'milestone_update' ? 'Milestone Update' : entry.action}
+                            {(entry.action === 'milestone_update' || entry.action === 'Milestone Update') && (
                               <span style={{ color: '#6b7280', fontWeight: '400' }}>
-                                {' '}→ {milestoneDefinitions[entry.milestone_id]?.text}
+                                {' '}→ {getMilestoneTextFromEntry(entry)}
                               </span>
                             )}
                           </div>
@@ -456,7 +469,10 @@ const MilestoneHistory = ({ isOpen, onClose, sendung }) => {
                         borderRadius: '6px',
                         borderLeft: `3px solid ${getTimelineColor(entry)}`
                       }}>
-                        {entry.details}
+                        {entry.action === 'milestone_update' 
+                          ? `Status geändert zu: ${getMilestoneTextFromEntry(entry)}`
+                          : entry.details
+                        }
                       </div>
                     )}
                   </div>
