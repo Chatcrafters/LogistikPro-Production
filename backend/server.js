@@ -125,6 +125,23 @@ app.put('/api/shipments/:id/milestone', async (req, res) => {
       });
     }
 
+    // Milestone-Definitionen (synchronized with frontend)
+    const milestoneTexts = {
+      0: "Nicht begonnen",
+      1: "Abholung beauftragt",
+      2: "Sendung abgeholt", 
+      3: "Anlieferung im Lager",
+      4: "Sendung gebucht",
+      5: "Zoll erledigt",
+      6: "Anlieferung bei Airline",
+      7: "Sendung abgeflogen",
+      8: "Sendung angekommen",
+      9: "Sendung verzollt",
+      10: "Sendung zugestellt"
+    };
+
+    const milestoneText = milestoneTexts[milestone] || `Milestone ${milestone}`;
+
     // Update in Datenbank
     const { data, error } = await supabase
       .from('shipments')
@@ -144,22 +161,31 @@ app.put('/api/shipments/:id/milestone', async (req, res) => {
       });
     }
 
-    // History-Eintrag erstellen (optional)
+    // History-Eintrag mit korrekten Daten erstellen
     const historyEntry = {
-      shipment_id: id,
-      action: 'milestone_update',
-      details: `Milestone geändert auf ${milestone}`,
-      created_at: new Date().toISOString()
+      shipment_id: parseInt(id),
+      action: 'Milestone Update',
+      details: `Status geändert zu: ${milestoneText} (Milestone ${milestone})`,
+      milestone_id: milestone,
+      created_at: new Date().toISOString(),
+      created_by: 'System'
     };
 
-    // History speichern (ignoriert Fehler wenn Tabelle nicht existiert)
+    console.log('📝 Creating history entry:', historyEntry);
+
+    // History speichern
     try {
-      await supabase
+      const { error: historyError } = await supabase
         .from('shipment_history')
         .insert([historyEntry]);
+        
+      if (historyError) {
+        console.error('❌ History Insert Error:', historyError);
+      } else {
+        console.log('✅ History entry created successfully');
+      }
     } catch (historyError) {
       console.warn('⚠️ History konnte nicht gespeichert werden:', historyError);
-      // Ignorieren - nicht kritisch
     }
 
     console.log('✅ Milestone erfolgreich aktualisiert:', data);
@@ -167,7 +193,8 @@ app.put('/api/shipments/:id/milestone', async (req, res) => {
     res.json({ 
       success: true, 
       data: data,
-      message: `Milestone auf ${milestone} aktualisiert`
+      message: `Milestone auf ${milestone} aktualisiert`,
+      milestone_text: milestoneText
     });
 
   } catch (error) {
