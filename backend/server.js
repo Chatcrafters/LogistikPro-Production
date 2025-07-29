@@ -56,7 +56,7 @@ app.get('/api/test-shipments', async (req, res) => {
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'none'; img-src http://localhost:3001; script-src 'self'; style-src 'self'"
+    "default-src 'none'; img-src https://logistikpro-production.onrender.com; script-src 'self'; style-src 'self'"
   );
   next();
 });

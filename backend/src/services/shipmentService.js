@@ -1,6 +1,6 @@
 // src/services/shipmentService.js
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://logistikpro-production.onrender.com/api';
 
 export const shipmentService = {
  // Alle Sendungen abrufen

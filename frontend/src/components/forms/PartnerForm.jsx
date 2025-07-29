@@ -75,8 +75,8 @@ export default function PartnerForm({ partner, onSave, onCancel }) {
 
     try {
       const url = partner 
-        ? `http://localhost:3001/api/partners/${partner.id}`
-        : "http://localhost:3001/api/partners";
+        ? `https://logistikpro-production.onrender.com/api/partners/${partner.id}`
+        : "https://logistikpro-production.onrender.com/api/partners";
       const method = partner ? "PUT" : "POST";
 
       const res = await fetch(url, {

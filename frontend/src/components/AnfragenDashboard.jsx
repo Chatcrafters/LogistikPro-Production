@@ -26,7 +26,7 @@ const AnfragenDashboard = ({ onClose }) => {
   const loadAnfragen = async () => {
   try {
     setLoading(true);
-    const response = await fetch('http://localhost:3001/api/quotations');
+    const response = await fetch('https://logistikpro-production.onrender.com/api/quotations');
     if (!response.ok) {
       console.error('Fehler beim Laden der Anfragen:', response.status);
       setAnfragen([]);
@@ -74,7 +74,7 @@ const AnfragenDashboard = ({ onClose }) => {
 
   const handleUpdateCost = async (anfrageId, type, cost) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/quotations/${anfrageId}/update-cost`, {
+      const response = await fetch(`https://logistikpro-production.onrender.com/api/quotations/${anfrageId}/update-cost`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, cost })
@@ -93,7 +93,7 @@ const AnfragenDashboard = ({ onClose }) => {
 
   const handleSendRequest = async (anfrageId, type) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/quotations/${anfrageId}/send-request`, {
+      const response = await fetch(`https://logistikpro-production.onrender.com/api/quotations/${anfrageId}/send-request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type })

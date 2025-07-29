@@ -16,7 +16,7 @@ const CustomersAndPartners = () => {
   // Kunden laden
   const fetchCustomers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/customers');
+      const response = await fetch('https://logistikpro-production.onrender.com/api/customers');
       const data = await response.json();
       setCustomers(data);
     } catch (error) {
@@ -27,7 +27,7 @@ const CustomersAndPartners = () => {
   // Partner laden
   const fetchPartners = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/partners');
+      const response = await fetch('https://logistikpro-production.onrender.com/api/partners');
       const data = await response.json();
       setPartners(data);
     } catch (error) {
@@ -44,7 +44,7 @@ const CustomersAndPartners = () => {
   const handleDeletePartner = async (id) => {
     if (!window.confirm("Diesen Partner wirklich löschen?")) return;
     try {
-      await fetch(`http://localhost:3001/api/partners/${id}`, { method: "DELETE" });
+      await fetch(`https://logistikpro-production.onrender.com/api/partners/${id}`, { method: "DELETE" });
       fetchPartners();
     } catch (error) {
       console.error('Fehler beim Löschen des Partners:', error);

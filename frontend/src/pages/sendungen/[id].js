@@ -35,7 +35,7 @@ export default function SendungDetail() {
 
   const loadSendung = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/shipments/${id}`);
+      const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${id}`);
       if (response.ok) {
         const data = await response.json();
         setSendung(data);

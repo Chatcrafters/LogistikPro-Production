@@ -579,7 +579,7 @@ export const handleSaveCosts = async (shipmentId, costs) => {
     
     // Try Backend API first
     try {
-      const response = await fetch(`http://localhost:3001/api/shipments/${shipmentId}/costs`, {
+      const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${shipmentId}/costs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

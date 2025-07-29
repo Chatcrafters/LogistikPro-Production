@@ -35,7 +35,7 @@ const WebCargoRates = ({ shipmentData, onSelectRate, onClose }) => {
       const totalPieces = shipmentData.gesamtColli || 1;
       
       // Versuche echte API
-      const response = await fetch('http://localhost:3001/api/webcargo/rates', {
+      const response = await fetch('https://logistikpro-production.onrender.com/api/webcargo/rates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -195,7 +195,7 @@ function CustomerForm({ customer, onSave, onCancel }) {
       let savedCustomer;
       if (customer) {
         // Kunde aktualisieren
-        const response = await fetch(`http://localhost:3001/api/customers/${customer.id}`, {
+        const response = await fetch(`https://logistikpro-production.onrender.com/api/customers/${customer.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData)
@@ -206,13 +206,13 @@ function CustomerForm({ customer, onSave, onCancel }) {
         // Ansprechpartner aktualisieren (vereinfacht: alle löschen und neu anlegen)
         // In einer echten App würdest du hier differenzierter vorgehen
         for (const contact of customer.contacts || []) {
-          await fetch(`http://localhost:3001/api/contacts/${contact.id}`, {
+          await fetch(`https://logistikpro-production.onrender.com/api/contacts/${contact.id}`, {
             method: 'DELETE'
           });
         }
       } else {
         // Neuen Kunden anlegen
-        const response = await fetch('http://localhost:3001/api/customers', {
+        const response = await fetch('https://logistikpro-production.onrender.com/api/customers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData)
@@ -225,7 +225,7 @@ function CustomerForm({ customer, onSave, onCancel }) {
       const savedContacts = [];
       for (const contact of contacts) {
         if (contact.name.trim()) {
-          const contactResponse = await fetch('http://localhost:3001/api/contacts', {
+          const contactResponse = await fetch('https://logistikpro-production.onrender.com/api/contacts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -255,7 +255,7 @@ function CustomerForm({ customer, onSave, onCancel }) {
               }
             }
 
-            const addressResponse = await fetch('http://localhost:3001/api/pickup_addresses', {
+            const addressResponse = await fetch('https://logistikpro-production.onrender.com/api/pickup_addresses', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -273,7 +273,7 @@ function CustomerForm({ customer, onSave, onCancel }) {
             // Abholzeiten für diese Adresse speichern
             for (const time of address.pickupTimes) {
               if (time.time_from && time.time_to) {
-                await fetch('http://localhost:3001/api/pickup_times', {
+                await fetch('https://logistikpro-production.onrender.com/api/pickup_times', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

@@ -79,7 +79,7 @@ Bearbeiten
 Du wolltest, dass die Milestone-Texte unter den Ampeln anklickbar werden, um ein Modal zu öffnen, mit dem man Milestones von 1-10 ändern kann.
 ⚡ AUSGANGSLAGE:
 
-    ✅ Server läuft (http://localhost:3001)
+    ✅ Server läuft (https://logistikpro-production.onrender.com)
     ✅ Frontend läuft (http://localhost:5173)
     ✅ Traffic Light System funktioniert (Ampeln zeigen Farben)
     ✅ Sendungen werden angezeigt

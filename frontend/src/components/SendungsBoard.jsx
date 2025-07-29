@@ -185,7 +185,7 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
     console.log(`🎯 Milestone Update: Sendung ${sendungId} → Milestone ${newMilestone}`);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/shipments/${sendungId}/milestone`, {
+      const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${sendungId}/milestone`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -232,7 +232,7 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
   try {
     console.log(`🎯 Updating milestone for ${sendungId} to ${newMilestone}`);
     
-    const response = await fetch(`http://localhost:3001/api/shipments/${sendungId}/milestone`, {
+    const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${sendungId}/milestone`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -501,7 +501,7 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
         console.log('Sende an Backend:', JSON.stringify(payload));
        
         // API Call
-        const response = await fetch(`http://localhost:3001/api/shipments/${costInputSendung.id}`, {
+        const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${costInputSendung.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -543,7 +543,7 @@ const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
     }}
     onSave={async (offerData) => {
       try {
-        const response = await fetch(`http://localhost:3001/api/shipments/${createOfferSendung.id}`, {
+        const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${createOfferSendung.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',

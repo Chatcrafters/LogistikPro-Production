@@ -440,7 +440,7 @@ useEffect(() => {
     console.log('Lade Partner...');
     
     // Nutze Express API für Partner (wie im Backup)
-    const response = await fetch('http://localhost:3001/api/partners');
+    const response = await fetch('https://logistikpro-production.onrender.com/api/partners');
     if (!response.ok) {
       throw new Error('Fehler beim Laden der Partner');
     }
@@ -721,7 +721,7 @@ else {
   console.log('📤 Sende an Tarif-API:', tarifeData);
 
  // WICHTIG: Nutze Express Backend API statt direkte Supabase!
-const response = await fetch('http://localhost:3001/api/partner-rates/calculate', {
+const response = await fetch('https://logistikpro-production.onrender.com/api/partner-rates/calculate', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(tarifeData)
@@ -1039,7 +1039,7 @@ pickup_cost: (() => {
         margin: vkKalkulation.marge
       };
       
-      const response = await fetch('http://localhost:3001/api/quotations', {
+      const response = await fetch('https://logistikpro-production.onrender.com/api/quotations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(quotationData)
