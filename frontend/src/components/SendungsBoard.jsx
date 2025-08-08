@@ -1,23 +1,23 @@
 // frontend/src/components/SendungsBoard.jsx
-// ✅ FINALE, KOMPLETT NEU GESCHRIEBENE VERSION (V7.0)
+// ✅ KOMPLETT NEU GESCHRIEBEN - Alle Features + Milestone-Updates
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, Package, FileQuestion, FileText, BarChart3, Plus, History } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Plus, Search, RefreshCw, Filter, Download, Upload, 
+  Package, AlertCircle, CheckCircle, Clock, TrendingUp,
+  Eye, EyeOff, X, Calendar, Euro, FileText
+} from 'lucide-react';
 
-// Module und Komponenten importieren
-import CreateOfferModal from './modals/CreateOfferModal';
-import CostInputModal from './modals/CostInputModal';
-import MilestoneHistory from './modals/MilestoneHistory';
-import costParser from '../utils/costParser';
-const { processMagicInput } = costParser;
-import { useSendungsData } from '../hooks/useSendungsData';
+// ✅ IMPORTS
 import SendungsTable from './SendungsTable';
 import NeueSendungSuper from './NeueSendungSuper';
+import CostInputModal from './modals/CostInputModal';
+import CreateOfferModal from './modals/CreateOfferModal';
+import MilestoneHistory from './modals/MilestoneHistory';
+import useSendungsData from '../hooks/useSendungsData';
 
-const SendungsBoard = ({ user }) => {
-  // ===============================================================
-  //  1. ZENTRALER DATEN-HOOK ("Das Gehirn")
-  // ===============================================================
+const SendungsBoard = () => {
+  // ✅ CUSTOM HOOK für Datenmanagement
   const {
     sendungen,
     customers,
@@ -26,349 +26,432 @@ const SendungsBoard = ({ user }) => {
     loading,
     error,
     stats,
-    updateTrafficLight,
+    loadAllData,
+    updateStatus,
     deleteSendung,
+    saveCosts,
+    createOffer,
+    handleOffer,
+    clearError
   } = useSendungsData();
 
-// ===============================================================
-//  2. UI-STATE MANAGEMENT (Zustand der Ansicht)
-// ===============================================================
-const [viewMode, setViewMode] = useState('sendungen');
-const [searchTerm, setSearchTerm] = useState('');
-const [selectedSendung, setSelectedSendung] = useState(null);
-const [showNeueSendung, setShowNeueSendung] = useState(false);
-const [showCostInput, setShowCostInput] = useState(false);
-const [costInputSendung, setCostInputSendung] = useState(null);
-// States für das Traffic Light System
-const [showTrafficLightModal, setShowTrafficLightModal] = useState(false);
-const [trafficLightData, setTrafficLightData] = useState(null);
-const trafficLightRef = useRef(null);
-const [showCreateOffer, setShowCreateOffer] = useState(false);
-const [createOfferSendung, setCreateOfferSendung] = useState(null);
-// Milestone Dropdown States (nur für E-Mail-Partner)
-const [selectedMilestoneSendung, setSelectedMilestoneSendung] = useState(null);
-// Milestone History States
-const [showMilestoneHistory, setShowMilestoneHistory] = useState(false);
-const [historySelectedSendung, setHistorySelectedSendung] = useState(null);
+  // ✅ UI STATE
+  const [activeTab, setActiveTab] = useState('alle');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCostModal, setShowCostModal] = useState(false);
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedSendung, setSelectedSendung] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // ✅ INITIAL DATA LOAD
+  useEffect(() => {
+    loadAllData();
+  }, []);
 
-  // ===============================================================
-  //  3. DATENFILTERUNG
-  // ===============================================================
+  // ✅ FILTERED DATA
   const filteredSendungen = sendungen.filter(sendung => {
-    const viewFilter = 
-      viewMode === 'anfragen' ? sendung.status === 'ANFRAGE' :
-      viewMode === 'angebote' ? sendung.status === 'ANGEBOT' :
-      viewMode === 'sendungen' ? !['ANFRAGE', 'ANGEBOT'].includes(sendung.status) :
-      true;
+    if (!sendung) return false;
 
-    if (!viewFilter) return false;
-    
-    if (!searchTerm) return true;
-    const search = searchTerm.toLowerCase();
-    const customerName = customers.find(c => c.id === sendung.customer_id)?.name.toLowerCase() || '';
+    // Tab-Filter
+    const tabFilter = () => {
+      switch (activeTab) {
+        case 'sendungen':
+          return sendung.status && !['ANFRAGE', 'ANGEBOT'].includes(sendung.status);
+        case 'anfragen':
+          return sendung.status === 'ANFRAGE';
+        case 'angebote':
+          return sendung.status === 'ANGEBOT';
+        case 'alle':
+        default:
+          return true;
+      }
+    };
 
-    return (
-      sendung.position?.toLowerCase().includes(search) ||
-      sendung.reference?.toLowerCase().includes(search) ||
-      customerName.includes(search)
-    );
+    // Such-Filter
+    const searchFilter = () => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      
+      return (
+        (sendung.position && sendung.position.toLowerCase().includes(term)) ||
+        (sendung.reference && sendung.reference.toLowerCase().includes(term)) ||
+        (sendung.awb_number && sendung.awb_number.toLowerCase().includes(term)) ||
+        (sendung.customer_name && sendung.customer_name.toLowerCase().includes(term)) ||
+        (sendung.origin_airport && sendung.origin_airport.toLowerCase().includes(term)) ||
+        (sendung.destination_airport && sendung.destination_airport.toLowerCase().includes(term))
+      );
+    };
+
+    return tabFilter() && searchFilter();
   });
 
-  // ===============================================================
-  //  4. EVENT HANDLER
-  // ===============================================================
-
-  const handleEditClick = (sendung) => {
-    setSelectedSendung(sendung);
-    console.log('Edit clicked for:', sendung.position);
-    // TODO: Edit Modal öffnen
+  // ✅ TAB COUNTS
+  const tabCounts = {
+    alle: sendungen.length,
+    sendungen: sendungen.filter(s => s.status && !['ANFRAGE', 'ANGEBOT'].includes(s.status)).length,
+    anfragen: sendungen.filter(s => s.status === 'ANFRAGE').length,
+    angebote: sendungen.filter(s => s.status === 'ANGEBOT').length
   };
 
-  const handleDeleteClick = (sendung) => {
-    if (window.confirm(`Sendung ${sendung.position || sendung.id} wirklich löschen?`)) {
-      deleteSendung(sendung.id);
+  // ===== HANDLER FUNKTIONEN =====
+
+  // ✅ REFRESH HANDLER
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadAllData();
+      console.log('✅ Data refreshed successfully');
+    } catch (error) {
+      console.error('❌ Refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
- const handleCreateOffer = (sendung) => {
-  console.log('Create offer for:', sendung.position);
-  console.log('Sendung Daten:', sendung);
-  console.log('Kosten:', {
-    pickup: sendung.pickup_cost || sendung.cost_pickup,
-    main: sendung.main_cost || sendung.cost_mainrun,
-    delivery: sendung.delivery_cost || sendung.cost_delivery
-  });
-  
-  // Öffne das Modal
-  setCreateOfferSendung(sendung);
-  setShowCreateOffer(true);
+  // ✅ CREATE SENDUNG HANDLER
+  const handleCreateClick = () => {
+    setShowCreateForm(true);
+  };
+
+  const handleCreateClose = () => {
+    setShowCreateForm(false);
+    loadAllData(); // Daten neu laden nach Erstellung
+  };
+
+  // ✅ EDIT SENDUNG HANDLER
+  const handleEditClick = (sendung) => {
+    console.log('📝 Edit clicked for sendung:', sendung);
+    setSelectedSendung(sendung);
+    setShowCreateForm(true);
+  };
+
+  // ✅ DELETE SENDUNG HANDLER
+  const handleDeleteClick = (sendung) => {
+    console.log('🗑️ Delete clicked for sendung:', sendung);
+    
+    if (!sendung || !sendung.id) {
+      alert('❌ Fehler: Keine gültige Sendung ausgewählt');
+      return;
+    }
+
+    const confirmMessage = `Sendung "${sendung.position || sendung.id}" wirklich löschen?\n\nDieser Vorgang kann nicht rückgängig gemacht werden.`;
+    
+    if (window.confirm(confirmMessage)) {
+      console.log('🗑️ User confirmed deletion, calling deleteSendung...');
+      deleteSendung(sendung.id);
+    } else {
+      console.log('🗑️ User cancelled deletion');
+    }
+  };
+
+  // ✅ COST INPUT HANDLER
+  const handleCostInputClick = (sendung) => {
+    console.log('💰 Cost input clicked for sendung:', sendung);
+    setSelectedSendung(sendung);
+    setShowCostModal(true);
+  };
+
+  const handleCostSave = async (costs) => {
+    if (!selectedSendung) return;
+    
+    try {
+      await saveCosts(selectedSendung.id, costs);
+      setShowCostModal(false);
+      setSelectedSendung(null);
+      await loadAllData(); // Daten neu laden
+    } catch (error) {
+      console.error('❌ Error saving costs:', error);
+      alert('❌ Fehler beim Speichern der Kosten');
+    }
+  };
+
+  // ✅ OFFER HANDLERS
+  const handleCreateOffer = (sendung) => {
+    console.log('📄 Create offer clicked for sendung:', sendung);
+    setSelectedSendung(sendung);
+    setShowOfferModal(true);
+  };
+
+  const handleOfferSave = async (offerData) => {
+    if (!selectedSendung) return;
+    
+    try {
+      await createOffer(selectedSendung.id, offerData);
+      setShowOfferModal(false);
+      setSelectedSendung(null);
+      await loadAllData(); // Daten neu laden
+    } catch (error) {
+      console.error('❌ Error creating offer:', error);
+      alert('❌ Fehler beim Erstellen des Angebots');
+    }
+  };
+
+  const handleAcceptOffer = async (sendung) => {
+    console.log('✅ Accept offer clicked for sendung:', sendung);
+    
+    const confirmMessage = `Angebot für "${sendung.position}" annehmen?\n\nPreis: €${sendung.offer_price}\nStatus wird zu "Sendung" geändert.`;
+    
+    if (window.confirm(confirmMessage)) {
+      try {
+        await handleOffer(sendung.id, 'accept');
+        await loadAllData(); // Daten neu laden
+      } catch (error) {
+        console.error('❌ Error accepting offer:', error);
+        alert('❌ Fehler beim Annehmen des Angebots');
+      }
+    }
+  };
+
+  const handleRejectOffer = async (sendung) => {
+    console.log('❌ Reject offer clicked for sendung:', sendung);
+    
+    const reason = prompt('Grund für Ablehnung (optional):');
+    
+    if (reason !== null) { // User didn't cancel
+      try {
+        await handleOffer(sendung.id, 'reject', reason);
+        await loadAllData(); // Daten neu laden
+      } catch (error) {
+        console.error('❌ Error rejecting offer:', error);
+        alert('❌ Fehler beim Ablehnen des Angebots');
+      }
+    }
+  };
+
+  // ✅ STATUS MENU HANDLER (für Traffic Lights)
+  const handleStatusMenuClick = (event, sendungId, lightType, data) => {
+    event.stopPropagation();
+    console.log('🚦 Status menu clicked:', { sendungId, lightType, data });
+    
+    // Hier könnten weitere Status-Aktionen implementiert werden
+    // Aktuell wird das über handleMilestoneClick gehandelt
+  };
+
+  // ✅ NEUE MILESTONE-UPDATE FUNKTION
+  const updateMilestone = async (sendungId, newMilestone) => {
+  try {
+    console.log(`🎯 Frontend: Updating milestone ${sendungId} → ${newMilestone}`);
+    
+    const response = await fetch(`http://localhost:3001/api/shipments/${sendungId}/milestone`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ milestone: newMilestone })
+    });
+
+    const result = await response.json();
+    console.log('📡 Backend response:', result);
+
+    if (response.ok && result.success) {
+      console.log('🔄 FORCING COMPLETE RELOAD...');
+      
+      // ✅ ERZWINGE KOMPLETTEN RELOAD
+      await loadAllData();
+      
+      // ✅ WARTE UND RELOAD NOCHMAL
+      setTimeout(async () => {
+        console.log('🔄 Second safety reload...');
+        await loadAllData();
+      }, 1000);
+      
+      alert(`✅ Milestone gespeichert: ${result.milestone_text}`);
+      
+    } else {
+      alert(`❌ Fehler: ${result.error}`);
+    }
+
+  } catch (error) {
+    console.error('❌ Network error:', error);
+    alert(`❌ Netzwerk-Fehler: ${error.message}`);
+  }
 };
 
-  const handleAcceptOffer = (sendung) => {
-    console.log('Accept offer for:', sendung.position);
-    // TODO: Accept Offer Logic
-  };
-
-  const handleRejectOffer = (sendung) => {
-    console.log('Reject offer for:', sendung.position);
-    // TODO: Reject Offer Logic
-  };
-  const handleCostInputClick = (sendung) => {
-    console.log('Cost input for:', sendung.position);
-    setCostInputSendung(sendung);
-    setShowCostInput(true);
-  };
-
-  // History Modal Handler
-  const handleShowHistory = (sendung) => {
-    console.log('📊 Opening History for:', sendung.position);
-    setHistorySelectedSendung(sendung);
-    setShowMilestoneHistory(true);
-  };
-
-  // Milestone Dropdown Handler (wie in Referenz)
+  // ✅ MILESTONE DROPDOWN HANDLER
   const handleMilestoneClick = (event, sendung, ampelType) => {
     event.stopPropagation();
     console.log('🎯 Milestone dropdown clicked:', sendung.position, ampelType);
     
-    const popup = document.getElementById('milestonePopup');
-    const optionsDiv = document.getElementById('milestoneOptions');
-    
-    // Position des Popups
-    popup.style.left = event.pageX + 'px';
-    popup.style.top = event.pageY + 'px';
-    popup.style.display = 'block';
-    
-    // Milestone-Optionen für den Ampel-Typ
-    const milestoneOptionen = getMilestoneOptionen(ampelType);
-    const currentMilestone = sendung.current_milestone || 0;
-    
-    optionsDiv.innerHTML = milestoneOptionen.map(opt => `
-      <div class="status-option ${isCurrentMilestone(opt.value, currentMilestone, ampelType) ? 'active' : ''}" 
-           onclick="updateMilestone(${sendung.id}, ${opt.value})"
-           style="padding: 10px 16px; cursor: pointer; display: flex; align-items: center; font-size: 14px; transition: background-color 0.2s;"
-           onmouseover="this.style.backgroundColor='#f5f5f7'"
-           onmouseout="this.style.backgroundColor='white'">
-        <span style="margin-right: 8px;">${opt.value <= currentMilestone ? '✅' : '⭕'}</span>
-        ${opt.text}
-      </div>
-    `).join('');
-    
-    // Partner-Info für E-Mail speichern
-    setSelectedMilestoneSendung(sendung);
-    window.currentMilestoneType = ampelType;
-  };
-
-  // Milestone-Optionen für jede Ampel (wie in Referenz)
-  const getMilestoneOptionen = (ampelType) => {
-    const optionen = {
-      abholung: [
+    // Erstelle Dropdown-Optionen basierend auf Ampel-Typ
+    const milestoneOptions = {
+      'abholung': [
         { value: 1, text: 'Abholung beauftragt' },
         { value: 2, text: 'Sendung abgeholt' },
         { value: 3, text: 'Anlieferung im Lager' }
       ],
-      carrier: [
+      'carrier': [
         { value: 4, text: 'Sendung gebucht' },
         { value: 5, text: 'Zoll erledigt' },
         { value: 6, text: 'Anlieferung bei Airline' },
         { value: 7, text: 'Sendung abgeflogen' },
         { value: 8, text: 'Sendung angekommen' }
       ],
-      zustellung: [
+      'zustellung': [
         { value: 9, text: 'Sendung verzollt' },
         { value: 10, text: 'Sendung zugestellt' }
       ]
     };
-    return optionen[ampelType] || [];
-  };
-
-  // Prüfen ob Milestone aktuell aktiv ist
-  const isCurrentMilestone = (milestoneValue, currentMilestone, ampelType) => {
-    if (ampelType === 'abholung') return currentMilestone >= 1 && currentMilestone <= 3 && milestoneValue === currentMilestone;
-    if (ampelType === 'carrier') return currentMilestone >= 4 && currentMilestone <= 8 && milestoneValue === currentMilestone;
-    if (ampelType === 'zustellung') return currentMilestone >= 9 && currentMilestone <= 10 && milestoneValue === currentMilestone;
-    return false;
-  };
-
-  // Milestone Update (wie in Referenz)
-  window.updateMilestone = async (sendungId, newMilestone) => {
-    console.log(`🎯 Milestone Update: Sendung ${sendungId} → Milestone ${newMilestone}`);
     
-    try {
-      const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${sendungId}/milestone`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ milestone: newMilestone })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    const options = milestoneOptions[ampelType] || [];
+    const currentMilestone = sendung.current_milestone || 1;
+    
+    // Zeige Auswahl-Dialog
+    const selection = prompt(
+      `Milestone für ${sendung.position} (${ampelType}) ändern:\n\n` +
+      `Aktuell: ${currentMilestone}\n\n` +
+      options.map(opt => `${opt.value}: ${opt.text}`).join('\n') +
+      '\n\nNeuen Milestone eingeben (Zahl):'
+    );
+    
+    if (selection) {
+      const newMilestone = parseInt(selection);
+      if (newMilestone >= 1 && newMilestone <= 10) {
+        updateMilestone(sendung.id, newMilestone);
+      } else {
+        alert('❌ Ungültiger Milestone! Bitte eine Zahl zwischen 1 und 10 eingeben.');
       }
-
-      console.log('✅ Milestone Update erfolgreich');
-      
-      // Popup schließen
-      document.getElementById('milestonePopup').style.display = 'none';
-      
-      // Seite neu laden um aktuelle Daten zu zeigen
-      window.location.reload();
-
-    } catch (error) {
-      console.error('❌ Fehler beim Milestone-Update:', error);
-      alert('Fehler beim Milestone-Update: ' + error.message);
     }
   };
 
-  // Partner E-Mail (wie in Referenz)
-  const emailPartner = () => {
-    if (selectedMilestoneSendung && window.currentMilestoneType) {
-      const subject = 'Status Update Request - Sendung ' + selectedMilestoneSendung.position;
-      const body = 'Sehr geehrte Damen und Herren,%0A%0ABitte um Status-Update für die Sendung ' + selectedMilestoneSendung.position + '.%0A%0AMit freundlichen Grüßen';
-      
-      // Partner-E-Mail basierend auf Ampel-Typ
-      let partnerEmail = 'info@logistikpro.de'; // Fallback
-      if (window.currentMilestoneType === 'abholung') partnerEmail = selectedMilestoneSendung.pickup_partner_email || partnerEmail;
-      if (window.currentMilestoneType === 'carrier') partnerEmail = selectedMilestoneSendung.main_partner_email || partnerEmail;
-      if (window.currentMilestoneType === 'zustellung') partnerEmail = selectedMilestoneSendung.delivery_partner_email || partnerEmail;
-      
-      window.open(`mailto:${partnerEmail}?subject=${subject}&body=${body}`);
-    }
-    document.getElementById('milestonePopup').style.display = 'none';
-  };
-
-  const handleMilestoneUpdate = async (sendungId, newMilestone) => {
-  try {
-    console.log(`🎯 Updating milestone for ${sendungId} to ${newMilestone}`);
-    
-    const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${sendungId}/milestone`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ milestone: newMilestone })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-    console.log('✅ Milestone Update erfolgreich:', result);
-
-    // Modal schließen
-    setShowMilestoneModal(false);
-    setSelectedMilestoneSendung(null);
-    
-    // Seite neu laden um aktuelle Daten zu zeigen
-    window.location.reload();
-
-  } catch (error) {
-    console.error('❌ Fehler beim Milestone-Update:', error);
-    alert('Fehler beim Milestone-Update: ' + error.message);
-    throw error;
-  }
+  // ✅ HISTORY HANDLER
+  const handleShowHistory = (sendung) => {
+  console.log('📊 Show history clicked for sendung:', sendung);
+  console.log('📊 Setting selectedSendung:', sendung.id);
+  console.log('📊 Setting showHistoryModal: true');
+  
+  setSelectedSendung(sendung);
+  setShowHistoryModal(true);
+  
+  // Debug: State nach Update prüfen
+  setTimeout(() => {
+    console.log('📊 State after update - showHistoryModal should be true');
+  }, 100);
 };
-  
-  const handleTrafficLightClick = (event, sendungId, milestoneType, data) => {
-    event.stopPropagation();
-    console.log('🚦 Traffic Light Click:', { sendungId, milestoneType, data });
-    
-    // Verwende updateTrafficLight aus useSendungsData
-    const currentStatus = data?.currentStatus || 'grey';
-    updateTrafficLight(sendungId, milestoneType, currentStatus);
-  };
-  
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (trafficLightRef.current && !trafficLightRef.current.contains(event.target)) {
-        setShowTrafficLightModal(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
-  // ===============================================================
-  //  5. RENDER-METHODE
-  // ===============================================================
+  // ✅ GLOBAL WINDOW FUNCTION (für HTML onclick)
+  window.updateMilestone = updateMilestone;
+
+  // ✅ ERROR DISPLAY
+  if (error) {
+    return (
+      <div style={{
+        padding: '20px',
+        backgroundColor: '#fee',
+        color: '#c53030',
+        borderRadius: '8px',
+        margin: '20px',
+        border: '1px solid #feb2b2'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <AlertCircle style={{ width: '20px', height: '20px' }} />
+          <strong>Fehler beim Laden der Daten</strong>
+        </div>
+        <p style={{ margin: '0 0 12px 0' }}>{error}</p>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={clearError}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#e53e3e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer'
+            }}
+          >
+            Fehler schließen
+          </button>
+          <button
+            onClick={handleRefresh}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#3182ce',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer'
+            }}
+          >
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ MAIN RENDER
   return (
-    <div style={{ padding: '20px', backgroundColor: '#f8fafc' }}>
-      
-      {/* Header */}
-      <div style={{ marginBottom: '24px', backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#f5f5f7'
+    }}>
+      {/* HEADER */}
+      <div style={{
+        backgroundColor: 'white',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '20px 32px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          maxWidth: '1400px',
+          margin: '0 auto'
+        }}>
           <div>
-            <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '700', color: '#1d1d1f' }}>
-              LogistikPro Dashboard
+            <h1 style={{
+              margin: '0 0 8px 0',
+              fontSize: '28px',
+              fontWeight: '700',
+              color: '#1d1d1f'
+            }}>
+              📦 Sendungsboard
             </h1>
-            <p style={{ margin: 0, color: '#6b7280', fontSize: '16px' }}>
-              Willkommen zurück, {user?.email || 'Benutzer'}
+            <p style={{
+              margin: 0,
+              color: '#86868b',
+              fontSize: '16px'
+            }}>
+              Verwalte alle deine Sendungen, Anfragen und Angebote
             </p>
           </div>
           
-          {/* Quick Stats */}
-<div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-  <div style={{ display: 'flex', gap: '20px' }}>
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '24px', fontWeight: '700', color: '#059669' }}>{stats.sendungen}</div>
-      <div style={{ fontSize: '12px', color: '#6b7280' }}>Sendungen</div>
-    </div>
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '24px', fontWeight: '700', color: '#dc2626' }}>{stats.anfragen}</div>
-      <div style={{ fontSize: '12px', color: '#6b7280' }}>Anfragen</div>
-    </div>
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>{stats.angebote}</div>
-      <div style={{ fontSize: '12px', color: '#6b7280' }}>Angebote</div>
-    </div>
-  </div>
-  
-  {/* Neue Sendung Button */}
-  <button
-    onClick={() => setShowNeueSendung(true)}
-    style={{
-      marginLeft: '20px',
-      padding: '10px 20px',
-      backgroundColor: '#3b82f6',
-      color: 'white',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '14px',
-      fontWeight: '600',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      transition: 'background-color 0.2s ease'
-    }}
-    onMouseEnter={(e) => e.target.style.backgroundColor = '#2563eb'}
-    onMouseLeave={(e) => e.target.style.backgroundColor = '#3b82f6'}
-  >
-    <Plus style={{ width: '16px', height: '16px' }} />
-    Neue Sendung
-  </button>
-</div>
-</div>
-
-        {/* Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
-          {[
-            { key: 'sendungen', label: '📦 Sendungen', icon: Package },
-            { key: 'anfragen', label: '❓ Anfragen', icon: FileQuestion },
-            { key: 'angebote', label: '💼 Angebote', icon: FileText },
-            { key: 'alle', label: '📊 Alle', icon: BarChart3 }
-          ].map(tab => (
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button
-              key={tab.key}
-              onClick={() => setViewMode(tab.key)}
+              onClick={handleRefresh}
+              disabled={loading || isRefreshing}
               style={{
-                padding: '12px 20px',
-                backgroundColor: viewMode === tab.key ? '#3b82f6' : 'transparent',
-                color: viewMode === tab.key ? 'white' : '#6b7280',
-                border: viewMode === tab.key ? '1px solid #3b82f6' : '1px solid #e5e7eb',
+                padding: '12px 16px',
+                backgroundColor: isRefreshing ? '#f3f4f6' : '#f8fafc',
+                color: isRefreshing ? '#9ca3af' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '8px',
+                cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <RefreshCw style={{ 
+                width: '16px', 
+                height: '16px',
+                transform: isRefreshing ? 'rotate(360deg)' : 'none',
+                transition: 'transform 1s ease'
+              }} />
+              {isRefreshing ? 'Lädt...' : 'Aktualisieren'}
+            </button>
+            
+            <button
+              onClick={handleCreateClick}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#0071e3',
+                color: 'white',
+                border: 'none',
                 borderRadius: '8px',
                 cursor: 'pointer',
                 fontSize: '14px',
@@ -378,272 +461,313 @@ const [historySelectedSendung, setHistorySelectedSendung] = useState(null);
                 gap: '8px',
                 transition: 'all 0.2s ease'
               }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#0056b3'}
+              onMouseOut={(e) => e.target.style.backgroundColor = '#0071e3'}
             >
-              <tab.icon style={{ width: '16px', height: '16px' }} />
-              {tab.label}
-              <span style={{
-                backgroundColor: viewMode === tab.key ? 'rgba(255,255,255,0.2)' : '#e5e7eb',
-                color: viewMode === tab.key ? 'white' : '#6b7280',
-                fontSize: '12px',
-                fontWeight: '600',
-                padding: '2px 6px',
-                borderRadius: '12px',
-                minWidth: '20px',
-                textAlign: 'center'
-              }}>
-                {tab.key === 'sendungen' ? stats.sendungen :
-                 tab.key === 'anfragen' ? stats.anfragen :
-                 tab.key === 'angebote' ? stats.angebote :
-                 stats.total}
-              </span>
+              <Plus style={{ width: '16px', height: '16px' }} />
+              Neue Sendung
             </button>
-          ))}
-        </div>
-
-        {/* Search Bar */}
-        <div style={{ marginTop: '16px', position: 'relative' }}>
-          <Search style={{ 
-            position: 'absolute', 
-            left: '12px', 
-            top: '50%', 
-            transform: 'translateY(-50%)', 
-            width: '20px', 
-            height: '20px', 
-            color: '#9ca3af' 
-          }} />
-          <input
-            type="text"
-            placeholder="Suche nach Position, Referenz oder Kunde..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 12px 12px 44px',
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
-              fontSize: '16px',
-              backgroundColor: '#f9fafb'
-            }}
-          />
+          </div>
         </div>
       </div>
 
-      {/* Loading & Error States */}
-      {loading && (
-        <div style={{ 
-          textAlign: 'center', 
-          padding: '40px', 
-          backgroundColor: 'white', 
-          borderRadius: '12px',
-          marginBottom: '20px'
+      {/* STATS CARDS */}
+      <div style={{
+        padding: '24px 32px',
+        maxWidth: '1400px',
+        margin: '0 auto'
+      }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
         }}>
-          <div style={{ fontSize: '18px', color: '#6b7280' }}>⏳ Daten werden geladen...</div>
-        </div>
-      )}
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Package style={{ width: '24px', height: '24px', color: '#3b82f6' }} />
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+                  {tabCounts.alle}
+                </div>
+                <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                  Gesamt
+                </div>
+              </div>
+            </div>
+          </div>
 
-      {error && (
-        <div style={{ 
-          padding: '16px', 
-          backgroundColor: '#fef2f2', 
-          border: '1px solid #fecaca',
-          borderRadius: '8px', 
-          color: '#dc2626',
-          marginBottom: '20px'
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Clock style={{ width: '24px', height: '24px', color: '#f59e0b' }} />
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+                  {tabCounts.anfragen}
+                </div>
+                <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                  Anfragen
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <FileText style={{ width: '24px', height: '24px', color: '#8b5cf6' }} />
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+                  {tabCounts.angebote}
+                </div>
+                <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                  Angebote
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <CheckCircle style={{ width: '24px', height: '24px', color: '#10b981' }} />
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+                  {tabCounts.sendungen}
+                </div>
+                <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                  Sendungen
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* CONTROLS */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '24px',
+          gap: '16px',
+          flexWrap: 'wrap'
         }}>
-          <strong>Fehler:</strong> {error}
-        </div>
-      )}
+          {/* TABS */}
+          <div style={{
+            display: 'flex',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '4px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            {[
+              { key: 'alle', label: 'Alle', icon: '📊' },
+              { key: 'anfragen', label: 'Anfragen', icon: '❓' },
+              { key: 'angebote', label: 'Angebote', icon: '💼' },
+              { key: 'sendungen', label: 'Sendungen', icon: '📦' }
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: '12px 20px',
+                  backgroundColor: activeTab === tab.key ? '#0071e3' : 'transparent',
+                  color: activeTab === tab.key ? 'white' : '#374151',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+                <span style={{
+                  backgroundColor: activeTab === tab.key ? 'rgba(255,255,255,0.2)' : '#f3f4f6',
+                  color: activeTab === tab.key ? 'white' : '#6b7280',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  minWidth: '20px',
+                  textAlign: 'center'
+                }}>
+                  {tabCounts[tab.key]}
+                </span>
+              </button>
+            ))}
+          </div>
 
-      {/* Main Table */}
-      {!loading && !error && (
-        <SendungsTable
-          sendungen={filteredSendungen}
+          {/* SEARCH */}
+          <div style={{ position: 'relative', minWidth: '300px' }}>
+            <Search style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: '16px',
+              height: '16px',
+              color: '#9ca3af'
+            }} />
+            <input
+              type="text"
+              placeholder="Suchen... (Position, Referenz, AWB, Kunde, Route)"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 12px 12px 40px',
+                border: '1px solid #d1d5db',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'all 0.2s ease'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#0071e3'}
+              onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#9ca3af',
+                  padding: '4px'
+                }}
+              >
+                <X style={{ width: '16px', height: '16px' }} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* MAIN TABLE */}
+        {loading ? (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '60px',
+            textAlign: 'center',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb'
+          }}>
+            <RefreshCw style={{ 
+              width: '32px', 
+              height: '32px', 
+              color: '#9ca3af',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ 
+              marginTop: '16px', 
+              color: '#6b7280',
+              fontSize: '16px'
+            }}>
+              Lade Sendungen...
+            </p>
+          </div>
+        ) : (
+          <SendungsTable
+            sendungen={filteredSendungen}
+            customers={customers}
+            partners={partners}
+            trafficLights={trafficLights}
+            viewMode={activeTab}
+            searchTerm={searchTerm}
+            onEditClick={handleEditClick}
+            onDeleteClick={handleDeleteClick}
+            onCreateOffer={handleCreateOffer}
+            onAcceptOffer={handleAcceptOffer}
+            onRejectOffer={handleRejectOffer}
+            onCostInputClick={handleCostInputClick}
+            onStatusMenuClick={handleStatusMenuClick}
+            onMilestoneClick={handleMilestoneClick}
+            onShowHistory={handleShowHistory}
+          />
+        )}
+      </div>
+
+      {/* MODALS */}
+      {showCreateForm && (
+        <NeueSendungSuper
+          isOpen={showCreateForm}
+          onClose={handleCreateClose}
+          editData={selectedSendung}
           customers={customers}
           partners={partners}
-          trafficLights={trafficLights}
-          viewMode={viewMode}
-          searchTerm={searchTerm}
-          onEditClick={handleEditClick}
-          onDeleteClick={handleDeleteClick}
-          onCreateOffer={handleCreateOffer}
-          onAcceptOffer={handleAcceptOffer}
-          onRejectOffer={handleRejectOffer}
-          onCostInputClick={handleCostInputClick}
-          onStatusMenuClick={handleTrafficLightClick}
-          onMilestoneClick={handleMilestoneClick}
-          onShowHistory={handleShowHistory}
         />
       )}
-      {/* Neue Sendung Modal */}
-{showNeueSendung && (
-  <NeueSendungSuper 
-    onClose={() => setShowNeueSendung(false)}
-    onSave={async (sendungData) => {
-      console.log('Neue Sendung:', sendungData);
-      setShowNeueSendung(false);
-      // Reload data wenn nötig
-    }}
-  />
-)}
-{/* Cost Input Modal */}
-{showCostInput && costInputSendung && (
-  <CostInputModal
-    sendung={costInputSendung}
-    partners={partners}
-    costParser={costParser}
-    onClose={() => {
-      setShowCostInput(false);
-      setCostInputSendung(null);
-    }}
-    onSave={async (costs) => {
-      console.log('=== KOSTEN SPEICHERN ===');
-      console.log('Sendung ID:', costInputSendung.id);
-      console.log('Kosten:', costs);
-     
-      try {
-        // Payload vorbereiten
-        const payload = {
-          pickup_cost: costs.pickup_cost,
-          main_cost: costs.main_cost,
-          delivery_cost: costs.delivery_cost,
-          cost_pickup: costs.pickup_cost,
-          cost_mainrun: costs.main_cost,
-          cost_delivery: costs.delivery_cost
-        };
-        console.log('Sende an Backend:', JSON.stringify(payload));
-       
-        // API Call
-        const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${costInputSendung.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload)
-        });
-       
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Server Response:', response.status, errorText);
-          throw new Error(`Fehler beim Speichern: ${response.status} - ${errorText}`);
-        }
-       
-        const result = await response.json();
-        console.log('Kosten gespeichert:', result);
-       
-        // Modal schließen und Daten neu laden
-        setShowCostInput(false);
-        setCostInputSendung(null);
-       
-        // Seite neu laden um aktuelle Daten zu zeigen
-        window.location.reload();
-       
-      } catch (error) {
-        console.error('Fehler beim Speichern:', error);
-        alert('Fehler beim Speichern der Kosten: ' + error.message);
-      }
-    }}
-  />
-)}
 
-{/* Create Offer Modal */}
-{showCreateOffer && createOfferSendung && (
-  <CreateOfferModal
-    sendung={createOfferSendung}
-    onClose={() => {
-      setShowCreateOffer(false);
-      setCreateOfferSendung(null);
-    }}
-    onSave={async (offerData) => {
-      try {
-        const response = await fetch(`https://logistikpro-production.onrender.com/api/shipments/${createOfferSendung.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status: 'ANGEBOT',
-            offer_price: offerData.offer_price,
-            offer_profit: offerData.margin_amount,
-            offer_margin_percent: offerData.margin_percent,
-            offer_created_at: new Date().toISOString(),
-            total_cost: offerData.total_cost
-          })
-        });
-       
-        if (!response.ok) {
-          throw new Error('Fehler beim Erstellen des Angebots');
-        }
-       
-        alert('✅ Angebot erfolgreich erstellt!');
-        setShowCreateOffer(false);
-        setCreateOfferSendung(null);
-        window.location.reload();
-       
-      } catch (error) {
-        console.error('Fehler:', error);
-        alert('Fehler beim Erstellen des Angebots: ' + error.message);
-      }
-    }}
-  />
-)}
+      {showCostModal && selectedSendung && (
+        <CostInputModal
+          isOpen={showCostModal}
+          onClose={() => {
+            setShowCostModal(false);
+            setSelectedSendung(null);
+          }}
+          onSave={handleCostSave}
+          sendung={selectedSendung}
+          partners={partners}
+        />
+      )}
 
-{/* Milestone Dropdown Popup (wie in Referenz) */}
-<div id="milestonePopup" style={{
-  position: 'absolute',
-  background: 'white',
-  border: '1px solid #d2d2d7',
-  borderRadius: '8px',
-  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-  zIndex: 1000,
-  minWidth: '250px',
-  display: 'none'
-}}>
-  <div style={{
-    padding: '12px 16px',
-    borderBottom: '1px solid #e5e7eb',
-    fontWeight: '600',
-    fontSize: '14px'
-  }}>
-    Milestone aktualisieren
-  </div>
-  <div id="milestoneOptions" style={{
-    maxHeight: '300px',
-    overflowY: 'auto'
-  }}></div>
-  <button
-    onClick={emailPartner}
-    style={{
-      width: '100%',
-      padding: '10px',
-      border: 'none',
-      borderTop: '1px solid #e5e7eb',
-      background: '#f5f5f7',
-      cursor: 'pointer',
-      fontSize: '14px',
-      textAlign: 'left',
-      transition: 'background-color 0.2s'
-    }}
-    onMouseOver={(e) => e.target.style.background = '#e8e8ed'}
-    onMouseOut={(e) => e.target.style.background = '#f5f5f7'}
-  >
-    📧 Partner per E-Mail kontaktieren
-  </button>
+      {showOfferModal && selectedSendung && (
+        <CreateOfferModal
+          isOpen={showOfferModal}
+          onClose={() => {
+            setShowOfferModal(false);
+            setSelectedSendung(null);
+          }}
+          onSave={handleOfferSave}
+          sendung={selectedSendung}
+        />
+      )}
+
+    {/* ✅ MILESTONE HISTORY MODAL - Mit richtiger Komponente */}
+      {showHistoryModal && selectedSendung && (
+        <MilestoneHistory
+          isOpen={showHistoryModal}
+          onClose={() => {
+            setShowHistoryModal(false);
+            setSelectedSendung(null);
+          }}
+          sendung={selectedSendung}
+        />
+      )}
+
 </div>
-
-{/* Milestone History Modal */}
-{showMilestoneHistory && historySelectedSendung && (
-  <MilestoneHistory
-    isOpen={showMilestoneHistory}
-    onClose={() => {
-      setShowMilestoneHistory(false);
-      setHistorySelectedSendung(null);
-    }}
-    sendung={historySelectedSendung}
-  />
-)}
-
-    </div>
-  );
+);
 };
 
 export default SendungsBoard;

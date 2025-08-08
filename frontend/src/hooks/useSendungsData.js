@@ -1,4 +1,4 @@
-// hooks/useSendungsData.js - KOMPLETT MIT MILESTONE-INTEGRATION
+// hooks/useSendungsData.js - REPARIERTE VERSION
 import { useState, useEffect, useCallback } from 'react';
 import supabase from '../supabaseClient';
 import { getMilestones, calculateTrafficLightStatus, getTransportKey } from '../utils/milestoneDefinitions';
@@ -24,336 +24,224 @@ export const useSendungsData = () => {
   };
 
   // ========================================
-  // 🚦 NEUE KRITIKALITÄTS-BASIERTE AMPEL-BERECHNUNG
+  // 🚦 NEUE ZEIT-BASIERTE AMPEL-BERECHNUNG
   // ========================================
   
-  /**
-   * Berechnet Ampel-Status basierend auf Cut-off Time und Flug-Daten
-   * @param {Object} sendung - Sendungsobjekt mit Flug-Daten
-   * @param {string} ampelType - 'abholung', 'carrier', 'zustellung'
-   * @returns {string} - 'green', 'yellow', 'red', 'grey'
-   */
-  const calculateCriticalityBasedAmpel = (sendung, ampelType) => {
-    console.log(`🚦 Kritikalitäts-Check für ${sendung.position} - ${ampelType}:`, {
-      cutoff_time: sendung.cutoff_time,
+  const calculateTimeBasedAmpel = (sendung, ampelType) => {
+    console.log(`🚨 CRITICAL TEST: calculateTimeBasedAmpel WIRD AUFGERUFEN für ${sendung.position} - ${ampelType}`);
+    console.log(`🚦 Zeit-basierte Ampel für ${sendung.position} - ${ampelType}:`, {
       pickup_date: sendung.pickup_date,
-      awb_number: sendung.awb_number,
+      flight_departure: sendung.flight_departure,
       delivery_date: sendung.delivery_date,
-      etd: sendung.etd,
-      eta: sendung.eta,
-      flight_status: sendung.flight_status
+      completed_milestones: sendung.completed_milestones
     });
 
-    const now = new Date();
-    
-    switch(ampelType) {
+    // Heute als Datum (ohne Uhrzeit für Vergleich)
+    const heute = new Date();
+    heute.setHours(0, 0, 0, 0);
+
+    // Helper: Datum parsen (ohne Uhrzeit)
+    const parseDate = (dateString) => {
+      if (!dateString) return null;
+      const date = new Date(dateString);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    };
+
+   // Helper: Hat Ampel erledigte Milestones?
+    const hasCompletedMilestones = (ampel) => {
+      console.log(`🔍 DEBUG hasCompletedMilestones für ${sendung.position}, Ampel: ${ampel}`);
+      console.log(`📊 completed_milestones Feld:`, sendung.completed_milestones);
+      
+      if (!sendung.completed_milestones) {
+        console.log(`⚪ Keine completed_milestones für Sendung ${sendung.position}`);
+        return false;
+      }
+
+      // Parse completed_milestones JSON
+      let completedIds = [];
+      try {
+        if (typeof sendung.completed_milestones === 'string') {
+          // Parse JSON string wie '"{1,4]}"' oder '"{1,2,3]}"'
+          const cleanString = sendung.completed_milestones.replace(/["{}\[\]]/g, '');
+          if (cleanString) {
+            completedIds = cleanString.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+          }
+        } else if (Array.isArray(sendung.completed_milestones)) {
+          completedIds = sendung.completed_milestones;
+        }
+      } catch (e) {
+        console.warn('Fehler beim Parsen der completed_milestones:', e);
+        return false;
+      }
+
+      console.log(`🎯 Parsed Milestone IDs:`, completedIds);
+
+      // Milestone-Definitionen für Ampel-Zuordnung
+      const milestoneDefinitions = {
+        1: { ampel: 'abholung' },    // Abholung beauftragt
+        2: { ampel: 'abholung' },    // Sendung abgeholt  
+        3: { ampel: 'abholung' },    // Anlieferung im Lager
+        4: { ampel: 'carrier' },     // Sendung gebucht
+        5: { ampel: 'carrier' },     // Zoll erledigt
+        6: { ampel: 'carrier' },     // Anlieferung bei Airline
+        7: { ampel: 'carrier' },     // Sendung abgeflogen
+        8: { ampel: 'carrier' },     // Sendung angekommen
+        9: { ampel: 'zustellung' },  // Sendung verzollt
+        10: { ampel: 'zustellung' }  // Sendung zugestellt
+      };
+
+      // Prüfe ob irgendein Milestone dieser Ampel erledigt ist
+      const hasMatchingMilestone = completedIds.some(milestoneId => {
+        const definition = milestoneDefinitions[milestoneId];
+        const matches = definition && definition.ampel === ampel;
+        
+        console.log(`🎯 Prüfe Milestone ${milestoneId}: Definition=${JSON.stringify(definition)}, Matches=${matches}`);
+        return matches;
+      });
+
+      console.log(`🚦 hasCompletedMilestones Result für ${ampel}: ${hasMatchingMilestone}`);
+      return hasMatchingMilestone;
+    };
+
+    // Bestimme relevantes Datum und Milestone-Status
+    let plannedDate = null;
+    let hasCompleted = false;
+
+    switch (ampelType) {
       case 'abholung':
-        // GRÜN: Sendung bereits abgeholt
-        if (sendung.pickup_date && sendung.pickup_date !== null) {
-          console.log(`🟢 ABHOLUNG GRÜN: Bereits abgeholt (${sendung.pickup_date})`);
-          return 'green';
-        }
-        
-        // Cut-off basierte Kritikalität
-        if (sendung.cutoff_time) {
-          const cutoff = new Date(sendung.cutoff_time);
-          const hoursUntilCutoff = (cutoff - now) / (1000 * 60 * 60);
-          
-          console.log(`⏰ Cut-off in ${hoursUntilCutoff.toFixed(1)} Stunden`);
-          
-          // ROT: Cut-off bereits verpasst
-          if (hoursUntilCutoff < 0) {
-            console.log(`🔴 ABHOLUNG ROT: Cut-off verpasst! (${Math.abs(hoursUntilCutoff).toFixed(1)}h zu spät)`);
-            return 'red';
-          }
-          
-          // GELB: Weniger als 2 Stunden bis Cut-off
-          if (hoursUntilCutoff <= 2) {
-            console.log(`🟡 ABHOLUNG GELB: Kritisch! Nur noch ${hoursUntilCutoff.toFixed(1)}h bis Cut-off`);
-            return 'yellow';
-          }
-          
-          // GRÜN: Genug Zeit bis Cut-off
-          console.log(`🟢 ABHOLUNG GRÜN: Noch ${hoursUntilCutoff.toFixed(1)}h Zeit`);
-          return 'green';
-        }
-        
-        // Fallback: Status-basiert
-        if (sendung.status === 'created' || sendung.status === 'booked') {
-          return 'green';
-        }
-        
-        console.log(`⚪ ABHOLUNG GRAU: Keine Cut-off Zeit gesetzt`);
-        return 'grey';
-
+        plannedDate = parseDate(sendung.pickup_date);
+        hasCompleted = hasCompletedMilestones('abholung');
+        break;
       case 'carrier':
-        // GRÜN: In Transit oder tatsächlich abgeflogen
-        if (sendung.status === 'in_transit' || sendung.atd || sendung.departed_at) {
-          console.log(`🟢 CARRIER GRÜN: In Transit / Abgeflogen`);
-          return 'green';
-        }
-        
-        // ROT: Flug gecancelt
-        if (sendung.flight_status === 'cancelled') {
-          console.log(`🔴 CARRIER ROT: Flug gecancelt!`);
-          return 'red';
-        }
-        
-        // ETD basierte Kritikalität
-        if (sendung.etd) {
-          const etd = new Date(sendung.etd);
-          const hoursUntilETD = (etd - now) / (1000 * 60 * 60);
-          
-          console.log(`✈️ ETD in ${hoursUntilETD.toFixed(1)} Stunden`);
-          
-          // ROT: Flug sollte bereits weg sein, ist aber noch nicht
-          if (hoursUntilETD < -2 && !sendung.atd) {
-            console.log(`🔴 CARRIER ROT: Flug ${Math.abs(hoursUntilETD).toFixed(1)}h verspätet!`);
-            return 'red';
-          }
-          
-          // GELB: Flug bald oder verspätet
-          if (hoursUntilETD <= 4 && hoursUntilETD > -2) {
-            console.log(`🟡 CARRIER GELB: Flug in ${hoursUntilETD.toFixed(1)}h`);
-            return 'yellow';
-          }
-        }
-        
-        // GELB: AWB vorhanden, bereit für Transport
-        if (sendung.awb_number && sendung.awb_number !== '') {
-          console.log(`🟡 CARRIER GELB: AWB vorhanden (${sendung.awb_number})`);
-          return 'yellow';
-        }
-        
-        // GRÜN: Abgeholt, bereit für AWB
-        if (sendung.pickup_date) {
-          console.log(`🟢 CARRIER GRÜN: Abgeholt, bereit für AWB`);
-          return 'green';
-        }
-        
-        console.log(`⚪ CARRIER GRAU: Noch nicht bereit`);
-        return 'grey';
-
+        plannedDate = parseDate(sendung.flight_departure);
+        hasCompleted = hasCompletedMilestones('carrier');
+        break;
       case 'zustellung':
-        // GRÜN: Bereits zugestellt
-        if (sendung.delivery_date || sendung.actual_delivery_date || sendung.status === 'zugestellt') {
-          console.log(`🟢 ZUSTELLUNG GRÜN: Zugestellt`);
-          return 'green';
-        }
-        
-        // ETA basierte Kritikalität
-        if (sendung.eta) {
-          const eta = new Date(sendung.eta);
-          const hoursUntilETA = (eta - now) / (1000 * 60 * 60);
-          
-          console.log(`🛬 ETA in ${hoursUntilETA.toFixed(1)} Stunden`);
-          
-          // ROT: ETA überschritten, aber noch nicht zugestellt
-          if (hoursUntilETA < -24) {
-            console.log(`🔴 ZUSTELLUNG ROT: ETA ${Math.abs(hoursUntilETA / 24).toFixed(1)} Tage überschritten!`);
-            return 'red';
-          }
-          
-          // GELB: ETA heute oder gestern
-          if (hoursUntilETA <= 24 && hoursUntilETA > -24) {
-            console.log(`🟡 ZUSTELLUNG GELB: ETA heute/gestern`);
-            return 'yellow';
-          }
-        }
-        
-        // GRÜN: In Transit, ETA in Zukunft
-        if (sendung.status === 'in_transit' || sendung.atd) {
-          console.log(`🟢 ZUSTELLUNG GRÜN: In Transit`);
-          return 'green';
-        }
-        
-        console.log(`⚪ ZUSTELLUNG GRAU: Noch nicht in Transit`);
-        return 'grey';
-
+        plannedDate = parseDate(sendung.delivery_date);
+        hasCompleted = hasCompletedMilestones('zustellung');
+        break;
       default:
         return 'grey';
     }
+
+    console.log(`🚦 Ampel ${ampelType}: plannedDate=${plannedDate}, hasCompleted=${hasCompleted}, heute=${heute}`);
+
+    // SERGIO'S LOGIK:
+    // 1. Kein Milestone erledigt → GRAU
+    if (!hasCompleted) {
+      console.log(`⚪ ${ampelType} GRAU: Kein Milestone erledigt`);
+      return 'grey';
+    }
+
+    // 2. Milestone erledigt + kein Datum → GRÜN (kein ROT möglich)
+    if (!plannedDate) {
+      console.log(`🟢 ${ampelType} GRÜN: Milestone erledigt, kein Datum vorhanden`);
+      return 'green';
+    }
+
+    // 3. Milestone erledigt + Verspätung (heute > geplantes Datum) → ROT
+    if (heute > plannedDate) {
+      console.log(`🔴 ${ampelType} ROT: Verspätet! Geplant: ${plannedDate.toDateString()}, Heute: ${heute.toDateString()}`);
+      return 'red';
+    }
+
+    // 4. Milestone erledigt + im Zeitplan → GRÜN
+    console.log(`🟢 ${ampelType} GRÜN: Milestone erledigt, im Zeitplan`);
+    return 'green';
   };
 
-  /**
-   * Berechnet alle Traffic Light Status für eine Sendung
-   * @param {Object} sendung - Sendungsobjekt
-   * @returns {Object} - { abholung: 'green', carrier: 'yellow', zustellung: 'grey' }
-   */
   const calculateTrafficLightsFromMilestones = (sendung) => {
     if (!sendung || !sendung.id) {
       return { abholung: 'grey', carrier: 'grey', zustellung: 'grey' };
     }
 
     const trafficLights = {
-      abholung: calculateCriticalityBasedAmpel(sendung, 'abholung'),
-      carrier: calculateCriticalityBasedAmpel(sendung, 'carrier'),
-      zustellung: calculateCriticalityBasedAmpel(sendung, 'zustellung')
+      abholung: calculateTimeBasedAmpel(sendung, 'abholung'),
+      carrier: calculateTimeBasedAmpel(sendung, 'carrier'),
+      zustellung: calculateTimeBasedAmpel(sendung, 'zustellung')
     };
 
-    console.log(`🚦 Traffic Lights für ${sendung.position}:`, trafficLights);
+    console.log(`🚦 Zeit-basierte Traffic Lights für ${sendung.position}:`, trafficLights);
     
     return trafficLights;
   };
 
   // ============== LOAD ALL DATA ==============
   const loadAllData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
+  
+  try {
+    console.log('🔄 Loading ALL data from Backend API...');
+
+    // ✅ NUTZE BACKEND-API STATT SUPABASE DIREKT
+    const response = await fetch('http://localhost:3001/api/shipments');
     
-    try {
-      console.log('🔄 Loading all data...');
-
-      // Parallel laden für bessere Performance - ERWEITERT mit neuer View
-      const [
-        sendungenResult,
-        customersResult,
-        partnersResult,
-        milestonesResult
-      ] = await Promise.all([
-        // NEUE Dashboard-View nutzen für erweiterte Felder
-        supabase.from('shipments_dashboard').select(`
-          *,
-          relevant_date,
-          date_type,
-          all_notes,
-          customer_name,
-          departure_time,
-          arrival_time,
-          etd,
-          eta,
-          cutoff_time,
-          flight_number,
-          pickup_confirmed,
-          flight_confirmed,
-          delivery_confirmed,
-          awb_number,
-          tracking_number,
-          notes,
-          special_instructions,
-          customer_notes,
-          internal_notes
-        `).order('created_at', { ascending: false }),
-        supabase.from('customers').select('*'),
-        supabase.from('partners').select('*'),
-        supabase.from('milestones').select('*')
-      ]);
-
-      // Error Handling für jeden Request
-      if (sendungenResult.error) throw new Error(`Sendungen: ${sendungenResult.error.message}`);
-      if (customersResult.error) throw new Error(`Kunden: ${customersResult.error.message}`);
-      if (partnersResult.error) throw new Error(`Partner: ${partnersResult.error.message}`);
-      if (milestonesResult.error) throw new Error(`Milestones: ${milestonesResult.error.message}`);
-
-      // Data Setting
-      setSendungen(sendungenResult.data || []);
-      setCustomers(customersResult.data || []);
-      setPartners(partnersResult.data || []);
-
-      // ============== MILESTONE PROCESSING ==============
-      const milestonesData = milestonesResult.data || [];
-      console.log('📊 Loaded milestones:', milestonesData.length);
-
-      // Group milestones by shipment_id
-      const milestonesByShipment = {};
-      milestonesData.forEach(milestone => {
-        const shipmentId = milestone.shipment_id;
-        if (!milestonesByShipment[shipmentId]) {
-          milestonesByShipment[shipmentId] = [];
-        }
-        milestonesByShipment[shipmentId].push(milestone);
-      });
-      setMilestones(milestonesByShipment);
-
-      // ============== TRAFFIC LIGHTS CALCULATION ==============
-      const trafficLightData = {};
-      sendungenResult.data.forEach(sendung => {
-        try {
-          const shipmentMilestones = milestonesByShipment[sendung.id] || [];
-          
-          // Transport type detection mit Fallback
-          let transportType = 'AIR'; // Default
-          if (sendung.transport_type) {
-            transportType = sendung.transport_type.toUpperCase();
-          } else if (sendung.transportArt) {
-            const typeMapping = {
-              'luftfracht': 'AIR',
-              'seefracht': 'SEA', 
-              'lkw': 'TRUCK'
-            };
-            transportType = typeMapping[sendung.transportArt.toLowerCase()] || 'AIR';
-          }
-
-          // Import/Export detection mit Fallback
-          let importExport = 'EXPORT'; // Default
-          if (sendung.import_export) {
-            importExport = sendung.import_export.toUpperCase();
-          } else if (sendung.transportrichtung) {
-            importExport = sendung.transportrichtung.toUpperCase();
-          }
-
-          console.log(`🚦 Traffic Light für Sendung ${sendung.position}: ${transportType}/${importExport}`);
-
-          // Milestone definitions abrufen
-          const key = getTransportKey(transportType, importExport);
-          const definitions = getMilestones(transportType, importExport);
-          
-          // ✅ NEUE KRITIKALITÄTS-BASIERTE TRAFFIC LIGHTS
-          const lights = calculateTrafficLightsFromMilestones(sendung);
-          
-          trafficLightData[sendung.id] = {
-            abholung: lights.abholung,
-            carrier: lights.carrier, 
-            zustellung: lights.zustellung,
-            transportType,
-            importExport,
-            definitions
-          };
-
-          console.log(`🚦 Traffic Lights für ${sendung.position}:`, lights);
-
-        } catch (error) {
-          console.error(`🚦 Traffic Light Error für Sendung ${sendung.id}:`, error);
-          // Fallback: Alle grau
-          trafficLightData[sendung.id] = {
-            abholung: 'grey',
-            carrier: 'grey',
-            zustellung: 'grey',
-            transportType: 'AIR',
-            importExport: 'EXPORT',
-            definitions: getMilestones('AIR', 'EXPORT')
-          };
-        }
-      });
-
-      setTrafficLights(trafficLightData);
-      console.log('✅ All data loaded successfully');
-
-    } catch (error) {
-      console.error('❌ Load data error:', error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
+    if (!response.ok) {
+      throw new Error(`Backend error: ${response.status}`);
     }
-  }, []);
+    
+    const result = await response.json();
+    const shipments = result.data || [];
+    
+    console.log('📊 Loaded shipments from backend:', shipments.length);
+    
+    // ✅ DEBUG: Zeige NEUE Milestone-Spalten
+    shipments.forEach(s => {
+      console.log(`📊 ${s.position}: Pickup-MS=${s.pickup_milestone}, Carrier-MS=${s.carrier_milestone}, Delivery-MS=${s.delivery_milestone}`);
+    });
+
+    // ✅ SET SHIPMENTS DATA
+    setSendungen(shipments);
+    
+    // ✅ NEUE TRAFFIC LIGHTS basierend auf SEPARATEN Milestones
+    const trafficLightData = {};
+    shipments.forEach(shipment => {
+      // Nutze die NEUEN separaten Milestone-Spalten!
+      const pickupMs = shipment.pickup_milestone || 0;
+      const carrierMs = shipment.carrier_milestone || 0;
+      const deliveryMs = shipment.delivery_milestone || 0;
+      
+      trafficLightData[shipment.id] = {
+        abholung: pickupMs > 0 ? 'green' : 'grey',
+        carrier: carrierMs > 0 ? 'green' : 'grey',
+        zustellung: deliveryMs > 0 ? 'green' : 'grey'
+      };
+      
+      console.log(`🚦 Ampeln für ${shipment.position}: Abholung=${pickupMs > 0 ? 'green' : 'grey'}, Carrier=${carrierMs > 0 ? 'green' : 'grey'}, Zustellung=${deliveryMs > 0 ? 'green' : 'grey'}`);
+    });
+    
+    setTrafficLights(trafficLightData);
+    
+    // ✅ LOAD CUSTOMERS & PARTNERS
+    const [customersRes, partnersRes] = await Promise.all([
+      fetch('http://localhost:3001/api/customers'),
+      fetch('http://localhost:3001/api/partners')
+    ]);
+    
+    if (customersRes.ok) {
+      setCustomers(await customersRes.json());
+    }
+    
+    if (partnersRes.ok) {
+      setPartners(await partnersRes.json());
+    }
+
+    console.log('✅ ALL DATA LOADED via Backend API');
+
+  } catch (error) {
+    console.error('❌ Load data error:', error);
+    setError(`Fehler beim Laden: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   // ============== TRAFFIC LIGHT UPDATE ==============
   const updateTrafficLight = useCallback(async (shipmentId, lightType, currentColor) => {
     try {
       console.log(`🚦 Traffic Light Update: ${shipmentId}, ${lightType}, ${currentColor}`);
-
-      const shipmentTrafficLights = trafficLights[shipmentId];
-      if (!shipmentTrafficLights) {
-        throw new Error('Traffic light data not found for shipment');
-      }
-
-      const { definitions, transportType, importExport } = shipmentTrafficLights;
-      const allMilestones = definitions;
-      const lightMilestones = allMilestones.filter(m => m.ampel === lightType);
-
-      if (!lightMilestones || lightMilestones.length === 0) {
-        throw new Error(`No milestone definitions found for ${lightType}`);
-      }
 
       // Neue Farbe bestimmen: grey → yellow → green → grey
       let newColor;
@@ -366,86 +254,6 @@ export const useSendungsData = () => {
 
       console.log(`🚦 Color change: ${currentColor} → ${newColor}`);
 
-      // Milestone-Updates basierend auf neuer Farbe
-      if (newColor === 'grey') {
-        // GRAU: Alle Milestones dieser Ampel entfernen
-        console.log(`🗑️ Removing all ${lightType} milestones`);
-        
-        for (const milestone of lightMilestones) {
-          const { error } = await supabase
-            .from('milestones')
-            .delete()
-            .eq('shipment_id', shipmentId)
-            .eq('milestone_id', milestone.id);
-
-          if (error) {
-            console.error(`Error removing milestone ${milestone.id}:`, error);
-          } else {
-            console.log(`✅ Removed milestone: ${milestone.text}`);
-          }
-        }
-
-      } else if (newColor === 'yellow') {
-        // GELB: Erstes Milestone setzen, andere entfernen
-        console.log(`🟡 Setting first ${lightType} milestone`);
-        
-        const firstMilestone = lightMilestones[0];
-        
-        // Andere Milestones dieser Ampel entfernen
-        for (let i = 1; i < lightMilestones.length; i++) {
-          await supabase
-            .from('milestones')
-            .delete()
-            .eq('shipment_id', shipmentId)
-            .eq('milestone_id', lightMilestones[i].id);
-        }
-
-        // Erstes Milestone setzen (upsert für Duplikat-Schutz)
-        const { error } = await supabase
-          .from('milestones')
-          .upsert({
-            shipment_id: shipmentId,
-            milestone_id: firstMilestone.id,
-            status: firstMilestone.text,
-            timestamp: new Date().toISOString(),
-            notes: `Automatisch gesetzt: ${firstMilestone.text}`,
-            created_by: 'system'
-          }, {
-            onConflict: 'shipment_id,milestone_id'
-          });
-
-        if (error) {
-          console.error(`Error setting milestone ${firstMilestone.id}:`, error);
-        } else {
-          console.log(`✅ Set milestone: ${firstMilestone.text}`);
-        }
-
-      } else if (newColor === 'green') {
-        // GRÜN: Alle Milestones dieser Ampel setzen
-        console.log(`🟢 Setting all ${lightType} milestones`);
-        
-        for (const milestone of lightMilestones) {
-          const { error } = await supabase
-            .from('milestones')
-            .upsert({
-              shipment_id: shipmentId,
-              milestone_id: milestone.id,
-              status: milestone.text,
-              timestamp: new Date().toISOString(),
-              notes: `Automatisch gesetzt: ${milestone.text}`,
-              created_by: 'system'
-            }, {
-              onConflict: 'shipment_id,milestone_id'
-            });
-
-          if (error) {
-            console.error(`Error setting milestone ${milestone.id}:`, error);
-          } else {
-            console.log(`✅ Set milestone: ${milestone.text}`);
-          }
-        }
-      }
-
       // Traffic lights state lokal updaten
       setTrafficLights(prev => ({
         ...prev,
@@ -454,9 +262,6 @@ export const useSendungsData = () => {
           [lightType]: newColor
         }
       }));
-
-      // Daten neu laden um DB-Änderungen zu reflektieren
-      await loadAllData();
 
       console.log(`✅ Traffic light ${lightType} updated to ${newColor}`);
 
@@ -597,19 +402,16 @@ export const useSendungsData = () => {
 
       if (action === 'accept') {
         updateData.status = 'created';
-        // Verwende existierende DB-Spalten
         updateData.selling_price = sendungen.find(s => s.id === shipmentId)?.offer_price || 0;
         updateData.profit = sendungen.find(s => s.id === shipmentId)?.offer_profit || 0;
         updateData.margin = sendungen.find(s => s.id === shipmentId)?.offer_margin_percent || 0;
         
-        // AWB generieren wenn nicht vorhanden
         const sendung = sendungen.find(s => s.id === shipmentId);
         if (!sendung?.awb_number) {
           updateData.awb_number = `AWB-${new Date().getFullYear()}-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
         }
       } else if (action === 'reject') {
         updateData.status = 'ABGELEHNT';
-        // Keine nicht-existierenden Spalten mehr verwenden
       }
 
       const { error } = await supabase
@@ -619,7 +421,6 @@ export const useSendungsData = () => {
 
       if (error) throw error;
 
-      // Lokalen State updaten
       setSendungen(prev =>
         prev.map(s =>
           s.id === shipmentId
@@ -636,144 +437,51 @@ export const useSendungsData = () => {
     }
   }, [sendungen]);
 
+  // ============== DELETE SENDUNG FUNKTION ==============
+  const deleteSendung = async (sendungId) => {
+    console.log('🗑️ DELETE FUNCTION CALLED:', sendungId);
+    
+    if (!sendungId) {
+      console.error('🗑️ ERROR: Keine Sendung-ID übergeben');
+      setError('Fehler: Keine gültige Sendung-ID');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('🗑️ SENDING DELETE REQUEST to Supabase...');
+      
+      const { error: supabaseError } = await supabase
+        .from('shipments')
+        .delete()
+        .eq('id', sendungId);
+
+      if (supabaseError) {
+        console.error('🗑️ SUPABASE DELETE ERROR:', supabaseError);
+        throw new Error(`Supabase Fehler: ${supabaseError.message}`);
+      }
+
+      console.log('🗑️ SUPABASE DELETE SUCCESS');
+      
+      await loadAllData();
+      console.log('🗑️ DELETE COMPLETE');
+      
+    } catch (error) {
+      console.error('🗑️ DELETE ERROR:', error);
+      setError(`Fehler beim Löschen der Sendung: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ============== INITIALIZE DATA ==============
   useEffect(() => {
     loadAllData();
   }, [loadAllData]);
 
-  // ============== ERWEITERTE FUNKTIONEN ==============
-  const updateFlightTimes = useCallback(async (shipmentId, flightData) => {
-    try {
-      console.log('✈️ Updating flight times:', shipmentId, flightData);
-      
-      const { data, error } = await supabase
-        .from('shipments')
-        .update({
-          departure_time: flightData.departure || null,
-          arrival_time: flightData.arrival || null,
-          etd: flightData.etd || null,
-          eta: flightData.eta || null,
-          cutoff_time: flightData.cutoff || null,
-          flight_number: flightData.flightNumber || null,
-          flight_confirmed: Boolean(flightData.confirmed),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', shipmentId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      console.log('✅ Flight times updated');
-      await loadAllData(); // Daten neu laden
-      return data;
-      
-    } catch (error) {
-      console.error('❌ updateFlightTimes error:', error);
-      setError(`Fehler beim Aktualisieren der Flugzeiten: ${error.message}`);
-    }
-  }, [loadAllData]);
-
-  const updateNotes = useCallback(async (shipmentId, notesData) => {
-    try {
-      console.log('📝 Updating notes:', shipmentId, notesData);
-      
-      const { data, error } = await supabase
-        .from('shipments')
-        .update({
-          notes: notesData.general || null,
-          special_instructions: notesData.instructions || null,
-          customer_notes: notesData.customer || null,
-          internal_notes: notesData.internal || null,
-          remarks: notesData.remarks || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', shipmentId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      console.log('✅ Notes updated');
-      await loadAllData();
-      return data;
-      
-    } catch (error) {
-      console.error('❌ updateNotes error:', error);
-      setError(`Fehler beim Aktualisieren der Notizen: ${error.message}`);
-    }
-  }, [loadAllData]);
-
-  const updateStatusConfirmations = useCallback(async (shipmentId, confirmations) => {
-    try {
-      console.log('🚦 Updating status confirmations:', shipmentId, confirmations);
-      
-      const { data, error } = await supabase
-        .from('shipments')
-        .update({
-          pickup_confirmed: Boolean(confirmations.pickup),
-          flight_confirmed: Boolean(confirmations.flight),
-          delivery_confirmed: Boolean(confirmations.delivery),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', shipmentId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      console.log('✅ Status confirmations updated');
-      await loadAllData();
-      return data;
-      
-    } catch (error) {
-      console.error('❌ updateStatusConfirmations error:', error);
-      setError(`Fehler beim Aktualisieren der Bestätigungen: ${error.message}`);
-    }
-  }, [loadAllData]);
-
-// DELETE SENDUNG FUNKTION
-const deleteSendung = async (sendungId) => {
-  console.log('🗑️ DELETE FUNCTION CALLED:', sendungId);
-  
-  if (!sendungId) {
-    console.error('🗑️ ERROR: Keine Sendung-ID übergeben');
-    setError('Fehler: Keine gültige Sendung-ID');
-    return;
-  }
-
-  try {
-    setLoading(true);
-    setError(null);
-    
-    console.log('🗑️ SENDING DELETE REQUEST to Supabase...');
-    
-    // Supabase Delete
-    const { error: supabaseError } = await supabase
-      .from('shipments')
-      .delete()
-      .eq('id', sendungId);
-
-    if (supabaseError) {
-      console.error('🗑️ SUPABASE DELETE ERROR:', supabaseError);
-      throw new Error(`Supabase Fehler: ${supabaseError.message}`);
-    }
-
-    console.log('🗑️ SUPABASE DELETE SUCCESS');
-    
-    // Nach erfolgreichem Löschen alle Daten neu laden
-    await loadAllData();
-    console.log('🗑️ DELETE COMPLETE');
-    
-  } catch (error) {
-    console.error('🗑️ DELETE ERROR:', error);
-    setError(`Fehler beim Löschen der Sendung: ${error.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // ============== RETURN HOOK INTERFACE - ERWEITERT ==============
+  // ============== RETURN HOOK INTERFACE ==============
   return {
     // Data
     sendungen,
@@ -787,23 +495,18 @@ const deleteSendung = async (sendungId) => {
     error,
     stats,
    
-    // Methods - Original
+    // Methods
     loadAllData,
     updateStatus,
-    deleteSendung,          // ← NEU HINZUGEFÜGT
+    deleteSendung,
     updateTrafficLight,
     saveCosts,
     createOffer,
     handleOffer,
    
-    // Methods - NEU für erweiterte DB-Felder
-    updateFlightTimes,
-    updateNotes,
-    updateStatusConfirmations,
-   
     // Utilities
     clearError: () => setError(null)
   };
 };
-// Default Export für Kompatibilität
+
 export default useSendungsData;

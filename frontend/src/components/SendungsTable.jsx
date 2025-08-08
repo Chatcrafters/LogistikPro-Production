@@ -1,20 +1,20 @@
-// C:\Users\Sergio Caro\LogistikApp\frontend\src\components\SendungsTable.jsx
-// ✅ VOLLSTÄNDIGE VERSION MIT ALLEN FEATURES - TEIL 1
+// frontend/src/components/SendungsTable.jsx
+// ✅ KORRIGIERTE VERSION - ALLE SYNTAX-FEHLER BEHOBEN
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Package, User, MapPin, Edit, Trash2, Euro, Circle, Clock, Calendar, 
   FileText, Plane, MessageSquare, AlertCircle, Eye, EyeOff, History
 } from 'lucide-react';
 
-// ✅ KORREKTE IMPORTS VON EXISTIERENDEN DATEIEN
-import { formatDate, formatDateTime, formatTime, getStatusColor, getTrafficLightColor } from '../utils/formatters';
+// ✅ KORREKTE IMPORTS
+import { formatDate, formatDateTime, formatTime } from '../utils/formatters';
 
-const SendungsTable = ({
-  sendungen,
-  customers,
-  partners,
-  trafficLights,        // ← VERWENDET BEREITS BERECHNETE TRAFFIC LIGHTS
+const SendungsTable = ({ 
+  sendungen, 
+  customers, 
+  partners, 
+  trafficLights,
   viewMode,
   searchTerm,
   onEditClick,
@@ -27,19 +27,20 @@ const SendungsTable = ({
   onMilestoneClick,
   onShowHistory
 }) => {
-  // ✅ NEUE SPALTEN-STRUKTUR
+  // ✅ STATES
   const [visibleColumns, setVisibleColumns] = useState({
-    abholung: true,        // Datum + Zeit + Ampel
-    kunde: true,           // Kunde + Referenz
-    colliGewicht: true,    // Gewicht + Colli + Ampel (bei Bedarf)
-    route: true,           // Von → Nach + Ampel (Transit)
-    awbCarrier: true,      // AWB + Carrier + Tracking
-    flugETA: true,         // ETA + ETD + Cut-off
-    zustellung: true,      // Zustelldatum + Empfänger + Ampel
-    laufzeit: true,        // Berechnete Laufzeit
-    aktionen: true         // Edit/Delete/etc.
+    abholung: true,
+    kunde: true,
+    colliGewicht: true,
+    route: true,
+    awbCarrier: true,
+    flugETA: true,
+    zustellung: true,
+    laufzeit: true,
+    aktionen: true
   });
 
+  // ✅ TOGGLE COLUMN FUNCTION
   const toggleColumn = (columnKey) => {
     setVisibleColumns(prev => ({
       ...prev,
@@ -47,23 +48,94 @@ const SendungsTable = ({
     }));
   };
 
-  // ✅ VEREINFACHTE TRAFFIC LIGHT STATUS FUNKTION
-  const getTrafficLightStatus = (sendung, type) => {
-    // Verwende BEREITS BERECHNETE Traffic Lights aus useSendungsData
-    if (trafficLights && trafficLights[sendung.id]) {
-      const status = trafficLights[sendung.id][type];
-      console.log(`🚦 Using calculated traffic light for ${sendung.position} - ${type}:`, status);
-      return status;
+  // ✅ REPARIERTE TRAFFIC LIGHT LOGIK - Unabhängige Ampeln
+const getTrafficLightStatus = (sendung, type) => {
+  // ✅ SCHRITT 1: Versuche trafficLights aus Hook zu nutzen
+  if (trafficLights && trafficLights[sendung.id]) {
+    const status = trafficLights[sendung.id][type];
+    console.log(`🚦 Using calculated traffic light for ${sendung.position} - ${type}:`, status);
+    return status;
+  }
+  
+  // ✅ SCHRITT 2: FALLBACK - Lokale Berechnung basierend auf completed_milestones
+  console.log(`🚦 Fallback calculation for ${sendung.position} - ${type}`);
+  
+  // Parse completed_milestones
+  let completedMilestones = [];
+  
+  if (sendung.completed_milestones) {
+    try {
+      if (Array.isArray(sendung.completed_milestones)) {
+        completedMilestones = sendung.completed_milestones;
+      } else if (typeof sendung.completed_milestones === 'string') {
+        const cleanString = sendung.completed_milestones
+          .replace(/[{}\[\]"]/g, '')
+          .trim();
+        if (cleanString) {
+          completedMilestones = cleanString
+            .split(',')
+            .map(id => parseInt(id.trim()))
+            .filter(id => !isNaN(id) && id >= 1 && id <= 10);
+        }
+      }
+    } catch (parseError) {
+      console.warn('⚠️ Error parsing completed_milestones:', parseError);
+      // Fallback auf current_milestone
+      const milestone = sendung.current_milestone || 0;
+      completedMilestones = milestone > 0 ? [milestone] : [];
     }
-    
-    // Fallback wenn keine Traffic Light Daten vorhanden
-    console.warn(`⚠️ No traffic light data for sendung ${sendung.position}, type ${type}`);
-    return 'grey';
+  } else {
+    // Fallback: current_milestone als completed behandeln
+    const milestone = sendung.current_milestone || 0;
+    completedMilestones = milestone > 0 ? [milestone] : [];
+  }
+  
+  // ✅ SCHRITT 3: Ampel-spezifische Milestone-Bereiche
+  const lightRanges = {
+    'abholung': [1, 2, 3],      // Abholung-Milestones
+    'carrier': [4, 5, 6, 7, 8], // Carrier-Milestones
+    'zustellung': [9, 10]       // Zustellung-Milestones
+  };
+  
+  const relevantMilestones = lightRanges[type] || [];
+  
+  // ✅ SCHRITT 4: Prüfe welche Milestones dieser Ampel abgeschlossen sind
+  const completedInThisLight = relevantMilestones.filter(ms => 
+    completedMilestones.includes(ms)
+  );
+  
+  // ✅ SCHRITT 5: Status-Berechnung
+  let status;
+  if (completedInThisLight.length === 0) {
+    status = 'red';    // Noch keine Milestones dieser Ampel
+  } else if (completedInThisLight.length === relevantMilestones.length) {
+    status = 'green';  // Alle Milestones dieser Ampel abgeschlossen
+  } else {
+    status = 'yellow'; // Teilweise abgeschlossen
+  }
+  
+  console.log(`🚦 Calculated ${sendung.position} - ${type}:`, {
+    completedMilestones,
+    relevantMilestones,
+    completedInThisLight,
+    status
+  });
+  
+  return status;
+};
+
+  const getTrafficLightColor = (status) => {
+    const colors = {
+      'green': '#10b981',
+      'yellow': '#f59e0b',
+      'red': '#ef4444',
+      'grey': '#9ca3af'
+    };
+    return colors[status] || colors.grey;
   };
 
-  // ✅ VEREINFACHTE TRAFFIC LIGHT COMPONENT
+  // ✅ TRAFFIC LIGHT COMPONENT
   const TrafficLight = ({ sendung, type, onTrafficLightClick }) => {
-    // Verwende nur bereits berechnete Werte - KEINE lokale Berechnung mehr!
     const currentStatus = getTrafficLightStatus(sendung, type);
     const color = getTrafficLightColor(currentStatus);
     
@@ -83,17 +155,7 @@ const SendungsTable = ({
         'red': 'Problem - Cut-off verpasst!'
       };
       
-      // Zusätzliche Info basierend auf Flug-Daten
-      let dateInfo = '';
-      if (type === 'abholung' && sendung.cutoff_time) {
-        dateInfo = `\n⏰ Cut-off: ${formatTime(sendung.cutoff_time)}`;
-      } else if (type === 'carrier' && sendung.etd) {
-        dateInfo = `\n✈️ ETD: ${formatDateTime(sendung.etd)}`;
-      } else if (type === 'zustellung' && sendung.eta) {
-        dateInfo = `\n🛬 ETA: ${formatDateTime(sendung.eta)}`;
-      }
-      
-      return `${labels[type]}: ${statusTexts[currentStatus]}${dateInfo}\n\nKlicken zum Ändern`;
+      return `${labels[type]}: ${statusTexts[currentStatus]}\n\nKlicken zum Ändern`;
     };
 
     return (
@@ -137,7 +199,6 @@ const SendungsTable = ({
           e.target.style.boxShadow = `0 0 8px ${color}40`;
         }}
       >
-        {/* Status Indicator */}
         <div style={{
           position: 'absolute',
           top: '-8px',
@@ -159,18 +220,14 @@ const SendungsTable = ({
     );
   };
 
+  // ✅ HELPER FUNCTIONS
   const getCostStatus = (shipment) => {
     if (!shipment) {
       return { text: '❌ Fehler', className: 'cost-error', total: 0, breakdown: { pickup: 0, main: 0, delivery: 0 } };
     }
     
     const pickupValue = parseFloat(shipment.pickup_cost || shipment.cost_pickup || 0);
-    const mainValue = parseFloat(
-      shipment.main_cost || 
-      shipment.cost_mainrun || 
-      shipment.mainrun_cost || 
-      0
-    );
+    const mainValue = parseFloat(shipment.main_cost || shipment.cost_mainrun || shipment.mainrun_cost || 0);
     const deliveryValue = parseFloat(shipment.delivery_cost || shipment.cost_delivery || 0);
     
     const hasPickupCost = pickupValue > 0;
@@ -187,30 +244,57 @@ const SendungsTable = ({
     };
     
     if (totalCosts === 0) {
-      return { 
-        text: '⏳ Ausstehend', 
-        className: 'cost-pending',
-        total: 0,
-        breakdown
-      };
+      return { text: '⏳ Ausstehend', className: 'cost-pending', total: 0, breakdown };
     } else if (totalCosts === 3) {
-      return { 
-        text: '✅ Komplett', 
-        className: 'cost-complete',
-        total: totalValue,
-        breakdown
-      };
+      return { text: '✅ Komplett', className: 'cost-complete', total: totalValue, breakdown };
     } else {
-      return { 
-        text: `📊 ${totalCosts}/3 erfasst`, 
-        className: 'cost-partial',
-        total: totalValue,
-        breakdown
-      };
+      return { text: `📊 ${totalCosts}/3 erfasst`, className: 'cost-partial', total: totalValue, breakdown };
     }
   };
 
-  // ✅ VEREINFACHTE STATUS-TEXT FUNKTIONEN
+  const getCustomerName = (customerId) => {
+    if (!customerId || !customers) return 'Unbekannt';
+    
+    if (Array.isArray(customers)) {
+      const customer = customers.find(c => c && c.id === customerId);
+      return customer?.name || 'Unbekannt';
+    }
+    
+    if (typeof customers === 'object') {
+      const customer = customers[customerId];
+      if (customer && typeof customer === 'object') {
+        return customer.name || 'Unbekannt';
+      }
+      if (typeof customer === 'string') {
+        return customer;
+      }
+    }
+    
+    return 'Unbekannt';
+  };
+
+  const getPartnerName = (partnerId) => {
+    if (!partnerId || !partners) return 'Unbekannt';
+    
+    if (Array.isArray(partners)) {
+      const partner = partners.find(p => p && p.id === partnerId);
+      return partner?.name || 'Unbekannt';
+    }
+    
+    if (partners && typeof partners === 'object') {
+      const partner = partners[partnerId];
+      if (partner && typeof partner === 'object') {
+        return partner.name || 'Unbekannt';
+      }
+      if (typeof partner === 'string') {
+        return partner;
+      }
+    }
+    
+    return 'Unbekannt';
+  };
+
+  // ✅ AMPEL STATUS TEXT
   const getAmpelStatusText = (sendung, type) => {
     const status = getTrafficLightStatus(sendung, type);
     
@@ -238,207 +322,7 @@ const SendungsTable = ({
     return statusTexts[type]?.[status] || 'Unbekannt';
   };
 
-  const getAmpelProgress = (sendung, type) => {
-    // Vereinfacht - basiert nur auf Status
-    const status = getTrafficLightStatus(sendung, type);
-    
-    if (status === 'green') return '✓';
-    if (status === 'yellow') return '!';
-    if (status === 'red') return '⚠';
-    return '○';
-  };
-
-  // NEUE HELPER-FUNKTIONEN FÜR DIE VERBESSERTE STRUKTUR
-
-  // 1. ABHOLUNG-INFO (Datum + Zeit + Status)
-  const getAbholungInfo = (sendung) => {
-    // Fallback-Logic wie gewünscht
-    let date, type, status;
-    
-    if (sendung.pickup_date) {
-      date = sendung.pickup_date;
-      type = 'Abgeholt';
-      status = 'completed';
-    } else if (sendung.estimated_pickup_date) {
-      date = sendung.estimated_pickup_date;
-      type = 'Geplant';
-      status = 'planned';
-    } else if (sendung.created_at) {
-      date = sendung.created_at;
-      type = 'Erfasst';
-      status = 'created';
-    } else {
-      return { date: '-', time: '-', type: 'Kein Datum', status: 'none', ampel: 'grey' };
-    }
-
-    // Ampel-Status basierend auf pickup_confirmed oder Status
-    let ampel = 'grey';
-    if (sendung.pickup_confirmed || status === 'completed') {
-      ampel = 'green';
-    } else if (status === 'planned') {
-      ampel = 'yellow';
-    }
-
-    return {
-      date: formatDate(date),
-      time: formatTime(date),
-      type: type,
-      status: status,
-      ampel: ampel,
-      raw: date
-    };
-  };
-
-  // 2. AWB/CARRIER-INFO
-  const getAWBCarrierInfo = (sendung) => {
-    const awb = sendung.awb_number || sendung.tracking_number || '-';
-    const carrier = sendung.carrier_name || getPartnerName(sendung.main_partner_id) || 'N/A';
-    
-    // Tracking-URL generieren (falls AWB vorhanden)
-    const hasTracking = awb !== '-' && awb.length > 5;
-    const trackingUrl = hasTracking ? `https://www.lufthansa-cargo.com/tracking?awb=${awb}` : null;
-
-    return {
-      awb: awb,
-      carrier: carrier,
-      hasTracking: hasTracking,
-      trackingUrl: trackingUrl,
-      displayText: awb !== '-' ? awb : 'Kein AWB'
-    };
-  };
-
-  // 3. ZUSTELLUNG-INFO (mit Empfänger)
-  const getZustellungInfo = (sendung) => {
-    let date, type, status, ampel = 'grey';
-    
-    if (sendung.actual_delivery_date || sendung.delivery_date) {
-      date = sendung.actual_delivery_date || sendung.delivery_date;
-      type = 'Zugestellt';
-      status = 'delivered';
-      ampel = 'green';
-    } else if (sendung.estimated_delivery_date) {
-      date = sendung.estimated_delivery_date;
-      type = 'Geplant';
-      status = 'planned';
-      ampel = 'yellow';
-    } else {
-      return { 
-        date: '-', 
-        type: 'Offen', 
-        empfaenger: sendung.recipient_city || 'Unbekannt',
-        ampel: 'grey' 
-      };
-    }
-
-    return {
-      date: formatDate(date),
-      time: formatTime(date),
-      type: type,
-      status: status,
-      empfaenger: sendung.recipient_city || sendung.empfaenger?.ort || 'Unbekannt',
-      ampel: ampel,
-      raw: date
-    };
-  };
-
-  // 4. LAUFZEIT BERECHNEN
-  const getLaufzeit = (sendung) => {
-    const abholung = getAbholungInfo(sendung);
-    const zustellung = getZustellungInfo(sendung);
-    
-    if (!abholung.raw || !zustellung.raw) {
-      // Fallback: Geplante Laufzeit aus Deadline
-      if (sendung.deadline && abholung.raw) {
-        const deadline = new Date(sendung.deadline);
-        const pickup = new Date(abholung.raw);
-        const diffDays = Math.ceil((deadline - pickup) / (1000 * 60 * 60 * 24));
-        return {
-          tage: diffDays > 0 ? diffDays : '-',
-          type: 'Geplant',
-          color: '#f59e0b'
-        };
-      }
-      return { tage: '-', type: 'Offen', color: '#9ca3af' };
-    }
-
-    const pickup = new Date(abholung.raw);
-    const delivery = new Date(zustellung.raw);
-    const diffDays = Math.ceil((delivery - pickup) / (1000 * 60 * 60 * 24));
-    
-    return {
-      tage: diffDays,
-      type: zustellung.status === 'delivered' ? 'Tatsächlich' : 'Geplant',
-      color: zustellung.status === 'delivered' ? '#10b981' : '#3b82f6'
-    };
-  };
-
-  // 5. MINI-AMPEL COMPONENT
-  const MiniAmpel = ({ status, size = 12 }) => {
-    const colors = {
-      'green': '#10b981',
-      'yellow': '#f59e0b', 
-      'red': '#ef4444',
-      'grey': '#9ca3af'
-    };
-
-    return (
-      <div style={{
-        width: `${size}px`,
-        height: `${size}px`,
-        borderRadius: '50%',
-        backgroundColor: colors[status] || colors.grey,
-        border: '1px solid white',
-        boxShadow: `0 0 4px ${colors[status] || colors.grey}40`,
-        display: 'inline-block'
-      }} />
-    );
-  };
-
-  // SICHERE Customer-Name Funktion
-  const getCustomerName = (customerId) => {
-    if (!customerId || !customers) return 'Unbekannt';
-    
-    // Prüfe ob customers ein Array ist
-    if (Array.isArray(customers)) {
-      const customer = customers.find(c => c && c.id === customerId);
-      return customer?.name || 'Unbekannt';
-    }
-    
-    // Prüfe ob customers ein Object ist
-    if (typeof customers === 'object') {
-      const customer = customers[customerId];
-      if (customer && typeof customer === 'object') {
-        return customer.name || 'Unbekannt';
-      }
-      if (typeof customer === 'string') {
-        return customer;
-      }
-    }
-  };
-    
-  // SICHERE Partner-Name Funktion
-  const getPartnerName = (partnerId) => {
-    if (!partnerId || !partners) return 'Unbekannt';
-    
-    if (Array.isArray(partners)) {
-      const partner = partners.find(p => p && p.id === partnerId);
-      return partner?.name || 'Unbekannt';
-    }
-    
-    if (partners && typeof partners === 'object') {
-      const partner = partners[partnerId];
-      if (partner && typeof partner === 'object') {
-        return partner.name || 'Unbekannt';
-      }
-      if (typeof partner === 'string') {
-        return partner;
-      }
-    }
-    
-    return 'Unbekannt';
-  };
-
-  // Empty State Component
+  // ✅ EMPTY STATE
   const EmptyState = () => (
     <div style={{ 
       padding: '60px 40px', 
@@ -474,18 +358,11 @@ const SendungsTable = ({
     </div>
   );
 
-  // Table Row Component
+  // ✅ TABLE ROW COMPONENT
   const TableRow = ({ sendung, index }) => {
-    const statusColors = getStatusColor(sendung.status);
     const costStatus = getCostStatus(sendung);
     const isEvenRow = index % 2 === 0;
     const customerName = getCustomerName(sendung.customer_id);
-    
-    // ✅ NEUE HELPER-DATEN FÜR ERWEITERTE SPALTEN
-    const abholungInfo = getAbholungInfo(sendung);
-    const awbCarrierInfo = getAWBCarrierInfo(sendung);
-    const zustellungInfo = getZustellungInfo(sendung);
-    const laufzeitInfo = getLaufzeit(sendung);
 
     return (
       <tr
@@ -504,11 +381,10 @@ const SendungsTable = ({
           e.currentTarget.style.backgroundColor = isEvenRow ? '#fafafa' : 'white';
         }}
       >
-        {/* ✅ NEUE SPALTE: ABHOLUNG (Datum + Zeit + ECHTE Traffic Light Ampel) */}
+        {/* ABHOLUNG */}
         {visibleColumns.abholung && (
           <td style={{ padding: '16px 12px', minWidth: '180px', verticalAlign: 'top' }}>
             <div>
-              {/* Oberer Bereich mit Ampel und Info */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <TrafficLight 
                   sendung={sendung} 
@@ -522,7 +398,7 @@ const SendungsTable = ({
                     color: '#1f2937',
                     marginBottom: '2px'
                   }}>
-                    {abholungInfo.date}
+                    {sendung.pickup_date ? formatDate(sendung.pickup_date) : 'Kein Datum'}
                   </div>
                   <div style={{
                     fontSize: '11px',
@@ -532,17 +408,9 @@ const SendungsTable = ({
                   }}>
                     {getAmpelStatusText(sendung, 'abholung')}
                   </div>
-                  <div style={{
-                    fontSize: '10px',
-                    color: '#9ca3af',
-                    fontWeight: '500'
-                  }}>
-                    {getAmpelProgress(sendung, 'abholung')} - {abholungInfo.type}
-                  </div>
                 </div>
               </div>
               
-              {/* Aktuelles Milestone für Ampel 1 (Vorlauf) - DROPDOWN */}
               <div style={{ 
                 marginTop: '8px', 
                 paddingLeft: '32px',
@@ -550,37 +418,29 @@ const SendungsTable = ({
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                console.log('🎯 Milestone Dropdown - Ampel 1 (Abholung), Current:', sendung.current_milestone);
+                console.log('🎯 Milestone Dropdown - Ampel 1 (Abholung), Pickup-MS:', sendung.pickup_milestone);
                 onMilestoneClick && onMilestoneClick(e, sendung, 'abholung');
               }}
               >
                 <div style={{
                   padding: '4px 8px',
-                  backgroundColor: sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#dcfce7' : '#f3f4f6',
+                  backgroundColor: sendung.pickup_milestone > 0 ? '#dcfce7' : '#f3f4f6',
                   borderRadius: '4px',
                   fontSize: '11px',
-                  color: sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#166534' : '#6b7280',
+                  color: sendung.pickup_milestone > 0 ? '#166534' : '#6b7280',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   border: '1px solid transparent',
                   transition: 'all 0.2s'
                 }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = '#9ca3af';
-                  e.currentTarget.style.backgroundColor = '#e5e7eb';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 1 && sendung.current_milestone <= 3 ? '#dcfce7' : '#f3f4f6';
-                }}
                 >
-                  <span>{sendung.current_milestone >= 1 ? '✓' : '○'}</span>
+                  <span>{sendung.pickup_milestone > 0 ? '✓' : '○'}</span>
                   <span>
-                    {sendung.current_milestone === 3 ? 'Anlieferung im Lager' :
-                     sendung.current_milestone === 2 ? 'Sendung abgeholt' :
-                     sendung.current_milestone >= 1 ? 'Abholung beauftragt' :
-                     'Abholung beauftragt'}
+                    {sendung.pickup_milestone === 3 ? 'Anlieferung im Lager' :
+                     sendung.pickup_milestone === 2 ? 'Sendung abgeholt' :
+                     sendung.pickup_milestone === 1 ? 'Abholung beauftragt' :
+                     'Nicht begonnen'}
                   </span>
                 </div>
               </div>
@@ -588,7 +448,7 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ ERWEITERTE SPALTE: KUNDE (Kunde + Referenz) */}
+        {/* KUNDE */}
         {visibleColumns.kunde && (
           <td style={{ padding: '16px 12px' }}>
             <div style={{ 
@@ -620,7 +480,7 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ ERWEITERTE SPALTE: COLLI/GEWICHT (mit optionaler Ampel) */}
+        {/* COLLI/GEWICHT */}
         {visibleColumns.colliGewicht && (
           <td style={{ padding: '16px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -644,19 +504,14 @@ const SendungsTable = ({
                   📦 {sendung.total_pieces || sendung.pieces || 0} Colli
                 </div>
               </div>
-              {/* Optionale Ampel für kritisches Gewicht */}
-              {parseFloat(sendung.total_weight || sendung.weight || 0) > 500 && (
-                <MiniAmpel status="yellow" size={12} />
-              )}
             </div>
           </td>
         )}
 
-       {/* ✅ ERWEITERTE SPALTE: ROUTE (Von → Nach + ECHTE Traffic Light Ampel für Transit) */}
+        {/* ROUTE */}
         {visibleColumns.route && (
           <td style={{ padding: '16px 12px', minWidth: '220px', verticalAlign: 'top' }}>
             <div>
-              {/* Oberer Bereich mit Route und Ampel */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <div>
                   <div style={{
@@ -673,15 +528,7 @@ const SendungsTable = ({
                   }}>
                     {sendung.sender_city || sendung.from_city || 'Unbekannt'} → {sendung.recipient_city || sendung.to_city || 'Unbekannt'}
                   </div>
-                  <div style={{
-                    fontSize: '10px',
-                    color: '#9ca3af',
-                    fontWeight: '500'
-                  }}>
-                    {getAmpelProgress(sendung, 'carrier')} - {getAmpelStatusText(sendung, 'carrier')}
-                  </div>
                 </div>
-                {/* ECHTE Traffic Light für Carrier/Transport */}
                 <TrafficLight 
                   sendung={sendung} 
                   type="carrier" 
@@ -689,7 +536,6 @@ const SendungsTable = ({
                 />
               </div>
               
-              {/* Aktuelles Milestone für Ampel 2 (Hauptlauf) - DROPDOWN */}
               <div style={{ 
                 marginTop: '8px', 
                 paddingLeft: '8px',
@@ -709,27 +555,17 @@ const SendungsTable = ({
                   color: sendung.current_milestone >= 4 && sendung.current_milestone <= 8 ? '#166534' : '#6b7280',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
-                  border: '1px solid transparent',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = '#9ca3af';
-                  e.currentTarget.style.backgroundColor = '#e5e7eb';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 4 && sendung.current_milestone <= 8 ? '#dcfce7' : '#f3f4f6';
+                  gap: '4px'
                 }}
                 >
-                  <span>{sendung.current_milestone >= 4 ? '✓' : '○'}</span>
+                  <span>{sendung.carrier_milestone > 0 ? '✓' : '○'}</span>
                   <span>
-                    {sendung.current_milestone === 8 ? 'Sendung angekommen' :
-                     sendung.current_milestone === 7 ? 'Sendung abgeflogen' :
-                     sendung.current_milestone === 6 ? 'Anlieferung bei Airline' :
-                     sendung.current_milestone === 5 ? 'Zoll erledigt' :
-                     sendung.current_milestone >= 4 ? 'Sendung gebucht' :
-                     'Sendung gebucht'}
+                    {sendung.carrier_milestone === 8 ? 'Sendung angekommen' :
+                     sendung.carrier_milestone === 7 ? 'Sendung abgeflogen' :
+                     sendung.carrier_milestone === 6 ? 'Anlieferung bei Airline' :
+                     sendung.carrier_milestone === 5 ? 'Zoll erledigt' :
+                     sendung.carrier_milestone === 4 ? 'Sendung gebucht' :
+                     'Nicht begonnen'}
                   </span>
                 </div>
               </div>
@@ -737,7 +573,7 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ NEUE SPALTE: AWB/CARRIER (AWB + Carrier + Tracking) */}
+        {/* AWB/CARRIER */}
         {visibleColumns.awbCarrier && (
           <td style={{ padding: '16px 12px' }}>
             <div>
@@ -748,24 +584,7 @@ const SendungsTable = ({
                 marginBottom: '2px',
                 fontFamily: 'monospace'
               }}>
-                {awbCarrierInfo.hasTracking ? (
-                  <a 
-                    href={awbCarrierInfo.trackingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      color: '#0071e3',
-                      textDecoration: 'none'
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    📋 {awbCarrierInfo.awb}
-                  </a>
-                ) : (
-                  <span style={{ color: '#6b7280' }}>
-                    📋 {awbCarrierInfo.displayText}
-                  </span>
-                )}
+                📋 {sendung.awb_number || 'Kein AWB'}
               </div>
               <div style={{
                 fontSize: '12px',
@@ -774,13 +593,13 @@ const SendungsTable = ({
                 alignItems: 'center',
                 gap: '4px'
               }}>
-                ✈️ {awbCarrierInfo.carrier}
+                ✈️ {getPartnerName(sendung.mainrun_partner_id) || 'N/A'}
               </div>
             </div>
           </td>
         )}
 
-        {/* ✅ NEUE SPALTE: FLUG ETA (ETA + ETD + Cut-off) */}
+        {/* FLUG ETA */}
         {visibleColumns.flugETA && (
           <td style={{ padding: '16px 12px', minWidth: '120px' }}>
             <div style={{ fontSize: '12px' }}>
@@ -806,18 +625,7 @@ const SendungsTable = ({
                   🛫 <strong>ETD:</strong> {formatDateTime(sendung.etd)}
                 </div>
               )}
-              {sendung.cutoff_time && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  color: '#dc2626',
-                  fontWeight: '600'
-                }}>
-                  ⏰ <strong>Cut-off:</strong> {formatTime(sendung.cutoff_time)}
-                </div>
-              )}
-              {!sendung.eta && !sendung.etd && !sendung.cutoff_time && (
+              {!sendung.eta && !sendung.etd && (
                 <div style={{
                   color: '#9ca3af',
                   display: 'flex',
@@ -832,11 +640,10 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ NEUE SPALTE: ZUSTELLUNG (Zustelldatum + Empfänger + ECHTE Traffic Light Ampel) */}
+        {/* ZUSTELLUNG */}
         {visibleColumns.zustellung && (
           <td style={{ padding: '16px 12px', minWidth: '180px', verticalAlign: 'top' }}>
             <div>
-              {/* Oberer Bereich mit Ampel und Info */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <TrafficLight 
                   sendung={sendung} 
@@ -850,7 +657,7 @@ const SendungsTable = ({
                     color: '#1f2937',
                     marginBottom: '2px'
                   }}>
-                    {zustellungInfo.date}
+                    {sendung.delivery_date ? formatDate(sendung.delivery_date) : 'Offen'}
                   </div>
                   <div style={{
                     fontSize: '11px',
@@ -860,16 +667,9 @@ const SendungsTable = ({
                   }}>
                     {getAmpelStatusText(sendung, 'zustellung')}
                   </div>
-                  <div style={{
-                    fontSize: '10px',
-                    color: '#9ca3af'
-                  }}>
-                    {getAmpelProgress(sendung, 'zustellung')} - 📍 {zustellungInfo.empfaenger}
-                  </div>
                 </div>
               </div>
               
-              {/* Aktuelles Milestone für Ampel 3 (Nachlauf) - DROPDOWN */}
               <div style={{ 
                 marginTop: '8px', 
                 paddingLeft: '32px',
@@ -889,24 +689,14 @@ const SendungsTable = ({
                   color: sendung.current_milestone >= 9 ? '#166534' : '#6b7280',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
-                  border: '1px solid transparent',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.borderColor = '#9ca3af';
-                  e.currentTarget.style.backgroundColor = '#e5e7eb';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.backgroundColor = sendung.current_milestone >= 9 ? '#dcfce7' : '#f3f4f6';
+                  gap: '4px'
                 }}
                 >
-                  <span>{sendung.current_milestone >= 9 ? '✓' : '○'}</span>
+                  <span>{sendung.delivery_milestone > 0 ? '✓' : '○'}</span>
                   <span>
-                    {sendung.current_milestone === 10 ? 'Sendung zugestellt' :
-                     sendung.current_milestone >= 9 ? 'Sendung verzollt' :
-                     'Sendung verzollt'}
+                    {sendung.delivery_milestone === 10 ? 'Sendung zugestellt' :
+                     sendung.delivery_milestone === 9 ? 'Sendung verzollt' :
+                     'Nicht begonnen'}
                   </span>
                 </div>
               </div>
@@ -914,30 +704,30 @@ const SendungsTable = ({
           </td>
         )}
 
-        {/* ✅ NEUE SPALTE: LAUFZEIT (Berechnete Laufzeit) */}
+        {/* LAUFZEIT */}
         {visibleColumns.laufzeit && (
           <td style={{ padding: '16px 12px' }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{
                 fontSize: '16px',
                 fontWeight: '700',
-                color: laufzeitInfo.color,
+                color: '#3b82f6',
                 marginBottom: '2px'
               }}>
-                {laufzeitInfo.tage === '-' ? '-' : `${laufzeitInfo.tage}d`}
+                -
               </div>
               <div style={{
                 fontSize: '11px',
                 color: '#6b7280',
                 fontWeight: '500'
               }}>
-                {laufzeitInfo.type}
+                Offen
               </div>
             </div>
           </td>
         )}
 
-        {/* ✅ AKTIONEN (Kompakt aber vollständig) */}
+        {/* AKTIONEN */}
         {visibleColumns.aktionen && (
           <td style={{ padding: '12px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ 
@@ -945,7 +735,6 @@ const SendungsTable = ({
               gap: '4px',
               flexWrap: 'wrap'
             }}>
-              {/* Standard Aktionen */}
               <button 
                 title="Details anzeigen/bearbeiten"
                 onClick={(e) => {
@@ -1008,7 +797,7 @@ const SendungsTable = ({
                 📊
               </button>
               
-              {/* KOSTEN-STATUS - NUR BEI ANFRAGEN (wieder hinzugefügt!) */}
+              {/* KOSTEN-STATUS - NUR BEI ANFRAGEN */}
               {viewMode === 'anfragen' && (
                 <button 
                   title={`Kosten erfassen (${costStatus.text})`}
@@ -1031,7 +820,7 @@ const SendungsTable = ({
                 </button>
               )}
 
-              {/* ANGEBOT ERSTELLEN - NUR BEI KOMPLETTEN KOSTEN (wieder hinzugefügt!) */}
+              {/* ANGEBOT ERSTELLEN - NUR BEI KOMPLETTEN KOSTEN */}
               {sendung.status === 'ANFRAGE' && costStatus.className === 'cost-complete' && (
                 <button 
                   title="Angebot erstellen"
@@ -1118,10 +907,10 @@ const SendungsTable = ({
     );
   };
 
-  // SICHERE Array-Behandlung für sendungen
+  // ✅ SICHERE ARRAY-BEHANDLUNG
   const safeSendungen = Array.isArray(sendungen) ? sendungen : [];
 
-  // Main Render
+  // ✅ MAIN RENDER
   return (
     <div style={{
       backgroundColor: 'white',
@@ -1130,7 +919,7 @@ const SendungsTable = ({
       boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
       border: '1px solid #e5e7eb'
     }}>
-      {/* ✅ NEUE SPALTEN-TOGGLE HEADER */}
+      {/* SPALTEN-TOGGLE HEADER */}
       <div style={{
         padding: '12px 20px',
         borderBottom: '1px solid #e5e7eb',
@@ -1150,7 +939,6 @@ const SendungsTable = ({
           gap: '6px',
           flexWrap: 'wrap'
         }}>
-          {/* ✅ NEUE TOGGLE-BUTTONS ARRAY */}
           {[
             { key: 'abholung', label: 'Abholung', icon: '📅' },
             { key: 'kunde', label: 'Kunde', icon: '👤' },
@@ -1193,7 +981,7 @@ const SendungsTable = ({
         </div>
       </div>
 
-      {/* Table Header Info */}
+      {/* TABLE HEADER INFO */}
       <div style={{
         padding: '16px 20px',
         borderBottom: '1px solid #e5e7eb',
@@ -1226,7 +1014,7 @@ const SendungsTable = ({
         )}
       </div>
 
-      {/* Main Table */}
+      {/* MAIN TABLE */}
       {safeSendungen.length === 0 ? (
         <EmptyState />
       ) : (
@@ -1236,7 +1024,6 @@ const SendungsTable = ({
             borderBottom: '2px solid #e2e8f0'
           }}>
             <tr>
-              {/* ✅ NEUE TABLE HEADERS */}
               {visibleColumns.abholung && (
                 <th style={{ 
                   padding: '16px 12px', 

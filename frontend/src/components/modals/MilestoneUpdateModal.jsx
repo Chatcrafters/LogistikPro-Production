@@ -1,28 +1,52 @@
 // frontend/src/components/modals/MilestoneUpdateModal.jsx
-import React, { useState } from 'react';
+// ✅ NEUE VERSION - Separate Milestones pro Ampel
+import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
-const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) => {
-  const [selectedMilestone, setSelectedMilestone] = useState(sendung?.current_milestone || 0);
+const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone, ampelType }) => {
+  // ✅ NEUE LOGIK: Initialer Milestone basierend auf Ampel-Typ
+  const getInitialMilestone = () => {
+    if (!sendung) return 0;
+    
+    switch(ampelType) {
+      case 'abholung':
+        return sendung.pickup_milestone || 0;
+      case 'carrier':
+        return sendung.carrier_milestone || 0;
+      case 'zustellung':
+        return sendung.delivery_milestone || 0;
+      default:
+        return sendung.current_milestone || 0;
+    }
+  };
+
+  const [selectedMilestone, setSelectedMilestone] = useState(getInitialMilestone());
   const [isLoading, setIsLoading] = useState(false);
+
+  // ✅ Update wenn sich Sendung oder Ampel-Typ ändert
+  useEffect(() => {
+    setSelectedMilestone(getInitialMilestone());
+  }, [sendung, ampelType]);
 
   // Milestone-Definitionen für alle 3 Ampel-Bereiche
   const milestoneDefinitions = {
-    // AMPEL 1: Abholung (Vorlauf) - Milestones 1-3
+    // AMPEL 1: Abholung (Vorlauf) - Milestones 0-3
     abholung: {
-      range: [1, 2, 3],
+      range: [0, 1, 2, 3],
       title: "📅 Abholung & Vorlauf",
       milestones: {
+        0: { text: "Nicht begonnen", color: "#9ca3af" },
         1: { text: "Abholung beauftragt", color: "#f59e0b" },
         2: { text: "Sendung abgeholt", color: "#3b82f6" },
         3: { text: "Anlieferung im Lager", color: "#10b981" }
       }
     },
-    // AMPEL 2: Carrier (Hauptlauf) - Milestones 4-8
+    // AMPEL 2: Carrier (Hauptlauf) - Milestones 0,4-8
     carrier: {
-      range: [4, 5, 6, 7, 8],
+      range: [0, 4, 5, 6, 7, 8],
       title: "✈️ Transport & Hauptlauf",
       milestones: {
+        0: { text: "Nicht begonnen", color: "#9ca3af" },
         4: { text: "Sendung gebucht", color: "#f59e0b" },
         5: { text: "Zoll erledigt", color: "#8b5cf6" },
         6: { text: "Anlieferung bei Airline", color: "#3b82f6" },
@@ -30,62 +54,45 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
         8: { text: "Sendung angekommen", color: "#10b981" }
       }
     },
-    // AMPEL 3: Zustellung (Nachlauf) - Milestones 9-10
+    // AMPEL 3: Zustellung (Nachlauf) - Milestones 0,9-10
     zustellung: {
-      range: [9, 10],
+      range: [0, 9, 10],
       title: "🚚 Zustellung & Nachlauf",
       milestones: {
+        0: { text: "Nicht begonnen", color: "#9ca3af" },
         9: { text: "Sendung verzollt", color: "#f59e0b" },
         10: { text: "Sendung zugestellt", color: "#10b981" }
       }
     }
   };
 
-  // Bestimme welche Ampel basierend auf aktuellem Milestone
-  const getCurrentAmpelType = (milestone) => {
-    if (milestone >= 1 && milestone <= 3) return 'abholung';
-    if (milestone >= 4 && milestone <= 8) return 'carrier';
-    if (milestone >= 9 && milestone <= 10) return 'zustellung';
-    return 'abholung'; // Default
+  // ✅ NEUE LOGIK: Nur relevante Milestones für die aktuelle Ampel
+  const getCurrentAmpelDefinition = () => {
+    return milestoneDefinitions[ampelType] || milestoneDefinitions.abholung;
   };
 
-  const currentAmpelType = getCurrentAmpelType(sendung?.current_milestone || 0);
-  const currentAmpel = milestoneDefinitions[currentAmpelType];
+  const currentAmpelDef = getCurrentAmpelDefinition();
 
-  // Verfügbare Milestones basierend auf aktuellem Status
+  // ✅ Verfügbare Milestones NUR für die aktuelle Ampel
   const getAvailableMilestones = () => {
-    const current = sendung?.current_milestone || 0;
     const available = [];
-
-    // Alle Milestones von 0 bis 10
-    for (let i = 0; i <= 10; i++) {
-      let category = '';
-      let definition = null;
-
-      if (i === 0) {
-        category = 'start';
-        definition = { text: "Nicht begonnen", color: "#9ca3af" };
-      } else if (i >= 1 && i <= 3) {
-        category = 'abholung';
-        definition = milestoneDefinitions.abholung.milestones[i];
-      } else if (i >= 4 && i <= 8) {
-        category = 'carrier';
-        definition = milestoneDefinitions.carrier.milestones[i];
-      } else if (i >= 9 && i <= 10) {
-        category = 'zustellung';
-        definition = milestoneDefinitions.zustellung.milestones[i];
+    const currentValue = getInitialMilestone();
+    
+    // Nur Milestones der aktuellen Ampel anzeigen
+    currentAmpelDef.range.forEach(milestoneId => {
+      const definition = currentAmpelDef.milestones[milestoneId];
+      if (definition) {
+        available.push({
+          id: milestoneId,
+          category: ampelType,
+          definition,
+          isCurrent: milestoneId === currentValue,
+          isCompleted: milestoneId < currentValue && milestoneId !== 0,
+          isNext: false,
+          isPossible: true
+        });
       }
-
-      available.push({
-        id: i,
-        category,
-        definition,
-        isCurrent: i === current,
-        isCompleted: i < current,
-        isNext: i === current + 1,
-        isPossible: true // Alle Milestones sind anwählbar
-      });
-    }
+    });
 
     return available;
   };
@@ -93,17 +100,28 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
   const availableMilestones = getAvailableMilestones();
 
   const handleSave = async () => {
-    if (!sendung || selectedMilestone === sendung.current_milestone) {
+    const currentValue = getInitialMilestone();
+    
+    if (!sendung || selectedMilestone === currentValue) {
       onClose();
       return;
     }
 
     setIsLoading(true);
+    
+    console.log('🎯 SAVING MILESTONE:', {
+      shipmentId: sendung.id,
+      milestone: selectedMilestone,
+      ampelType: ampelType,
+      previousValue: currentValue
+    });
+
     try {
-      await onUpdateMilestone(sendung.id, selectedMilestone);
+      // ✅ WICHTIG: Sende ampelType mit!
+      await onUpdateMilestone(sendung.id, selectedMilestone, ampelType);
       onClose();
     } catch (error) {
-      console.error('Fehler beim Milestone-Update:', error);
+      console.error('❌ Fehler beim Milestone-Update:', error);
       alert('Fehler beim Speichern des Milestones!');
     } finally {
       setIsLoading(false);
@@ -111,6 +129,10 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
   };
 
   if (!isOpen || !sendung) return null;
+
+  // ✅ Aktueller Wert für diese Ampel
+  const currentMilestoneValue = getInitialMilestone();
+  const currentMilestoneText = currentAmpelDef.milestones[currentMilestoneValue]?.text || 'Unbekannt';
 
   return (
     <div style={{
@@ -150,7 +172,7 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
               fontWeight: '600',
               color: '#1f2937'
             }}>
-              🎯 Milestone aktualisieren
+              {currentAmpelDef.title}
             </h2>
             <p style={{
               margin: '4px 0 0 0',
@@ -180,7 +202,7 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
           maxHeight: '60vh',
           overflowY: 'auto'
         }}>
-          {/* Aktueller Status */}
+          {/* ✅ ALLE 3 AMPEL-STATUS ANZEIGEN */}
           <div style={{
             backgroundColor: '#f0f9ff',
             border: '1px solid #0ea5e9',
@@ -192,20 +214,59 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              marginBottom: '8px'
+              marginBottom: '12px'
             }}>
               <CheckCircle size={16} style={{ color: '#0ea5e9' }} />
               <span style={{ fontWeight: '600', color: '#0369a1' }}>
-                Aktueller Status
+                Aktuelle Milestone-Status
               </span>
             </div>
-            <div style={{ fontSize: '14px', color: '#0369a1' }}>
-              <strong>Milestone {sendung.current_milestone}:</strong>{' '}
-              {availableMilestones.find(m => m.id === sendung.current_milestone)?.definition?.text || 'Unbekannt'}
+            
+            {/* Zeige Status ALLER 3 Ampeln */}
+            <div style={{ fontSize: '13px', color: '#0369a1', lineHeight: '1.6' }}>
+              <div style={{ 
+                padding: '4px 0',
+                fontWeight: ampelType === 'abholung' ? '700' : '400',
+                backgroundColor: ampelType === 'abholung' ? '#dbeafe' : 'transparent',
+                paddingLeft: '8px',
+                marginLeft: '-8px',
+                marginRight: '-8px',
+                borderRadius: '4px'
+              }}>
+                📅 <strong>Abholung:</strong> MS {sendung.pickup_milestone || 0} - {
+                  milestoneDefinitions.abholung.milestones[sendung.pickup_milestone || 0]?.text || 'Nicht begonnen'
+                }
+              </div>
+              <div style={{ 
+                padding: '4px 0',
+                fontWeight: ampelType === 'carrier' ? '700' : '400',
+                backgroundColor: ampelType === 'carrier' ? '#dbeafe' : 'transparent',
+                paddingLeft: '8px',
+                marginLeft: '-8px',
+                marginRight: '-8px',
+                borderRadius: '4px'
+              }}>
+                ✈️ <strong>Carrier:</strong> MS {sendung.carrier_milestone || 0} - {
+                  milestoneDefinitions.carrier.milestones[sendung.carrier_milestone || 0]?.text || 'Nicht begonnen'
+                }
+              </div>
+              <div style={{ 
+                padding: '4px 0',
+                fontWeight: ampelType === 'zustellung' ? '700' : '400',
+                backgroundColor: ampelType === 'zustellung' ? '#dbeafe' : 'transparent',
+                paddingLeft: '8px',
+                marginLeft: '-8px',
+                marginRight: '-8px',
+                borderRadius: '4px'
+              }}>
+                🚚 <strong>Zustellung:</strong> MS {sendung.delivery_milestone || 0} - {
+                  milestoneDefinitions.zustellung.milestones[sendung.delivery_milestone || 0]?.text || 'Nicht begonnen'
+                }
+              </div>
             </div>
           </div>
 
-          {/* Milestone-Auswahl */}
+          {/* Milestone-Auswahl NUR für aktuelle Ampel */}
           <div style={{ marginBottom: '20px' }}>
             <h3 style={{
               margin: '0 0 16px 0',
@@ -213,7 +274,7 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
               fontWeight: '600',
               color: '#1f2937'
             }}>
-              📊 Neues Milestone auswählen
+              📊 Neuen Status für {currentAmpelDef.title} wählen
             </h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -241,12 +302,12 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
                     }}
                     onMouseOver={(e) => {
                       if (!isSelected) {
-                        e.target.style.backgroundColor = '#f9fafb';
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
                       }
                     }}
                     onMouseOut={(e) => {
                       if (!isSelected) {
-                        e.target.style.backgroundColor = isCurrent ? '#f0f9ff' : 
+                        e.currentTarget.style.backgroundColor = isCurrent ? '#f0f9ff' : 
                                                        milestone.isCompleted ? '#f0fdf4' : 'white';
                       }
                     }}
@@ -266,7 +327,7 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
                     }}>
                       {milestone.isCompleted ? '✓' : 
                        isCurrent ? '●' : 
-                       milestone.isNext ? '!' : 
+                       milestone.id === 0 ? '○' :
                        milestone.id}
                     </div>
 
@@ -278,19 +339,15 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
                         color: '#1f2937',
                         marginBottom: '2px'
                       }}>
-                        Milestone {milestone.id}: {milestone.definition?.text}
+                        {milestone.id === 0 ? 'Reset:' : `Milestone ${milestone.id}:`} {milestone.definition?.text}
                       </div>
                       <div style={{
                         fontSize: '12px',
                         color: '#6b7280'
                       }}>
-                        {milestone.category === 'start' && '⚪ Startpunkt'}
-                        {milestone.category === 'abholung' && '📅 Abholung & Vorlauf'}
-                        {milestone.category === 'carrier' && '✈️ Transport & Hauptlauf'}
-                        {milestone.category === 'zustellung' && '🚚 Zustellung & Nachlauf'}
-                        {isCurrent && ' (Aktuell)'}
-                        {milestone.isCompleted && ' (Abgeschlossen)'}
-                        {milestone.isNext && ' (Nächster Schritt)'}
+                        {isCurrent && ' ✅ Aktueller Status'}
+                        {milestone.isCompleted && ' ✓ Bereits erledigt'}
+                        {milestone.id === 0 && ' ⚪ Zurücksetzen auf Anfang'}
                       </div>
                     </div>
 
@@ -315,12 +372,12 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
               <AlertCircle size={14} />
-              <strong>Hinweise:</strong>
+              <strong>Wichtig:</strong>
             </div>
-            • Du kannst sowohl vor- als auch rückwärts navigieren<br/>
-            • Milestone-Änderungen werden automatisch gespeichert<br/>
-            • Traffic Lights werden automatisch aktualisiert<br/>
-            • Partner können per E-Mail benachrichtigt werden (geplant)
+            • Jede Ampel hat ihren eigenen Milestone-Status<br/>
+            • Du kannst jeden Status unabhängig setzen<br/>
+            • Milestone 0 = Ampel zurücksetzen auf "Nicht begonnen"<br/>
+            • Die anderen Ampeln bleiben unverändert
           </div>
         </div>
 
@@ -334,10 +391,11 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
           alignItems: 'center'
         }}>
           <div style={{ fontSize: '12px', color: '#6b7280' }}>
-            {selectedMilestone !== sendung.current_milestone && (
+            {selectedMilestone !== currentMilestoneValue && (
               <>
-                {selectedMilestone > sendung.current_milestone ? '⬆️ Fortschritt' : '⬇️ Rückschritt'}: 
-                {' '}Milestone {sendung.current_milestone} → {selectedMilestone}
+                {selectedMilestone > currentMilestoneValue ? '⬆️ Fortschritt' : 
+                 selectedMilestone === 0 ? '↩️ Zurücksetzen' : '⬇️ Rückschritt'}: 
+                {' '}Milestone {currentMilestoneValue} → {selectedMilestone}
               </>
             )}
           </div>
@@ -360,14 +418,14 @@ const MilestoneUpdateModal = ({ isOpen, onClose, sendung, onUpdateMilestone }) =
             
             <button
               onClick={handleSave}
-              disabled={isLoading || selectedMilestone === sendung.current_milestone}
+              disabled={isLoading || selectedMilestone === currentMilestoneValue}
               style={{
                 padding: '8px 16px',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: selectedMilestone !== sendung.current_milestone ? '#3b82f6' : '#9ca3af',
+                backgroundColor: selectedMilestone !== currentMilestoneValue ? '#3b82f6' : '#9ca3af',
                 color: 'white',
-                cursor: selectedMilestone !== sendung.current_milestone ? 'pointer' : 'not-allowed',
+                cursor: selectedMilestone !== currentMilestoneValue ? 'pointer' : 'not-allowed',
                 fontSize: '14px',
                 display: 'flex',
                 alignItems: 'center',

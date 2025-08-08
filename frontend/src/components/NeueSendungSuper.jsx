@@ -41,10 +41,25 @@ const NeueSendungSuper = ({ onClose, onSave }) => {
   const [uploadProgress, setUploadProgress] = useState([]);
   const [extractedData, setExtractedData] = useState([]);
   
-  // Partner-Modal State
+ // Partner-Modal State
   const [showNewPartnerModal, setShowNewPartnerModal] = useState(null);
+  
+  // ✅ AUTO-SAVE: Lade gespeicherte Daten beim Start
+  const loadSavedDraft = () => {
+    const savedDraft = localStorage.getItem('neueSendung_draft');
+    if (savedDraft) {
+      try {
+        return JSON.parse(savedDraft);
+      } catch (e) {
+        console.error('Fehler beim Laden des Drafts:', e);
+        localStorage.removeItem('neueSendung_draft');
+      }
+    }
+    return null;
+  };
 
-  const [formData, setFormData] = useState({
+  // ✅ INITIAL FORM DATA
+  const initialFormData = {
     // Kunde & Abholung
     kunde: '',
     abholort: '',
@@ -101,13 +116,12 @@ const NeueSendungSuper = ({ onClose, onSave }) => {
     abholPartner: '',
     hauptlaufPartner: '',
     zustellPartner: ''
-  });
+  };
 
-  // Lade echte Daten beim Start
-  useEffect(() => {
-    loadMasterData();
-  }, []);
+  // ✅ FORM DATA STATE MIT AUTO-SAVE CHECK
+  const [formData, setFormData] = useState(initialFormData);
 
+  // ✅ LOAD MASTER DATA FUNCTION
   const loadMasterData = async () => {
     try {
       setLoading(true);
@@ -168,8 +182,54 @@ const NeueSendungSuper = ({ onClose, onSave }) => {
     }
   };
 
+  // ✅ USE EFFECTS
+  // Lade echte Daten beim Start
+  useEffect(() => {
+    loadMasterData();
+  }, []);
+
+  // AUTO-SAVE: Speichere bei jeder Änderung
+  useEffect(() => {
+    const hasData = formData.kunde || 
+                    formData.referenz || 
+                    formData.vonFlughafen || 
+                    formData.nachFlughafen ||
+                    formData.colli?.some(c => c.anzahl > 1 || c.gewichtProStueck);
+    
+    if (hasData) {
+      localStorage.setItem('neueSendung_draft', JSON.stringify(formData));
+      console.log('💾 Draft auto-gespeichert');
+    }
+  }, [formData]);
+  
+ // ✅ CLOSE HANDLER MIT WARNUNG
+  const handleClose = () => {
+    const hasData = formData.kunde ||
+                    formData.referenz ||
+                    formData.vonFlughafen ||
+                    formData.nachFlughafen;
+   
+    if (hasData) {
+      const confirmClose = window.confirm(
+        '⚠️ Du hast ungespeicherte Daten!\n\n' +
+        'Möchtest du wirklich schließen?\n\n' +
+        'Tipp: Nutze "Als Anfrage speichern" um deine Daten zu sichern.'
+      );
+     
+      if (!confirmClose) {
+        return;
+      }
+    }
+   
+    // Beim Schließen aufräumen
+    localStorage.removeItem('neueSendung_draft');
+    onClose();
+  };
+
+  // ✅ CONSTANTS
   const incoterms = ['EXW', 'FCA', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP', 'FOB', 'CIF'];
 
+  // ✅ HELPER FUNCTIONS
   // Intelligente Partner-Auswahl Funktionen
   const getPickupPartners = () => {
     if (!partners.raw) return [];
@@ -616,7 +676,7 @@ const NeueSendungSuper = ({ onClose, onSave }) => {
               <Package style={{ width: '20px', height: '20px', marginRight: '8px' }} />
               Neue Sendung - Superdokument
             </h2>
-            <button onClick={onClose} style={{ padding: '8px', cursor: 'pointer', border: 'none', background: 'none' }}>
+            <button onClick={handleClose} style={{ padding: '8px', cursor: 'pointer', border: 'none', background: 'none' }}>
               <X style={{ width: '20px', height: '20px' }} />
             </button>
           </div>
@@ -1515,7 +1575,7 @@ Handling: $75`}
            {/* Actions */}
            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '12px', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
              <button 
-               onClick={onClose}
+               onClick={handleClose}
                style={{ 
                  padding: '8px 16px', 
                  border: '1px solid #d1d5db', 
