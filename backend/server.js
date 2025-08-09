@@ -16,7 +16,8 @@ app.use(cors({
     'http://localhost:3000',   // ← Alternative React Port
     'http://127.0.0.1:5173',   // ← Alternative localhost
     'https://logistikpro-app.vercel.app',
-    'https://logistikpro-lucrdjw20-sergio-s-projects-34d127fd.vercel.app'
+    'https://logistikpro-lucrdjw20-sergio-s-projects-34d127fd.vercel.app',
+    'https://logistikpro-production.onrender.com'  // ← NEU: Render Frontend URL
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
